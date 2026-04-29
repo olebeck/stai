@@ -1,0 +1,17 @@
+stai:
+  attributes: 0
+  version:
+    major: 1
+    minor: 1
+  main:
+    start: module_start
+  libraries:
+    stai:
+      syscall: true
+      functions:
+        - _staiHookExport
+        - _staiHookImport
+        - _staiHookOffset
+        - _staiUnhook
+        - _staiHookModuleStart
+        - _staiFindModuleByLibraryNid
