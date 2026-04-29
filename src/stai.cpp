@@ -37,14 +37,15 @@ static int startModuleCommon_hook(SceUID pid, SceUID modid, size_t args, void* a
   return TAI_CONTINUEPP(startModuleCommon_hook, startModuleCommon_hook_ref, pid, modid, args, argp, param_5, option, status);
 }
 
-static SceClassCallback ModulemgrDestructor_destroy_cb = nullptr;
+static tai_hook_ref_t ModulemgrDestructor_hook_ref;
+static SceUID ModulemgrDestructor_hook_id = -1;
 static int ModulemgrDestructor_hook(void* data) {
   SceModuleObject* module_obj = (SceModuleObject*)data;
   SceModuleCB& module_cb = module_obj->data;
   if(module_cb.pid != KERNEL_PID) {
     hooks::after_module_unload(module_cb);
   }
-  return ModulemgrDestructor_destroy_cb(data);
+  return TAI_CONTINUEPP(ModulemgrDestructor_hook, ModulemgrDestructor_hook_ref, data);
 }
 
 int get_is_363(SceUID modid) {
@@ -131,7 +132,17 @@ extern "C" EXPORTED int module_start(SceSize argc, const void* argv) {
   if(ret < 0) {
     return ret;
   }
-  ModulemgrDestructor_destroy_cb = SceUIDModuleClass->destroy_cb;
-  SceUIDModuleClass->destroy_cb = ModulemgrDestructor_hook;
+
+  ret = taiHookFunctionAbs(
+    KERNEL_PID,
+    &ModulemgrDestructor_hook_ref,
+    (void*)SceUIDModuleClass->destroy_cb,
+    (void*)ModulemgrDestructor_hook
+  );
+  LOGD("taiHookFunctionAbs: %08x", ret);
+  if(ret < 0) {
+    return ret;
+  }
+  ModulemgrDestructor_hook_id = ret;
   return 0;
 }
