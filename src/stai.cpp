@@ -21,13 +21,19 @@
 })
 
 static int on_process_exit(SceUID pid, SceProcEventInvokeParam1 *a2, int a3) {
-  hooks::on_process_exit(pid);
+  hooks::on_process_delete(pid);
+  return 0;
+};
+
+static int on_process_kill(SceUID pid, SceProcEventInvokeParam1 *a2, int a3) {
+  hooks::on_process_delete(pid);
   return 0;
 };
 
 static SceProcEventHandler proc_event_handler = {
   .size = sizeof(SceProcEventHandler),
-  .exit = on_process_exit
+  .exit = on_process_exit,
+  .kill = on_process_kill,
 };
 
 static tai_hook_ref_t startModuleCommon_hook_ref;

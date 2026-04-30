@@ -90,6 +90,7 @@ target_link_libraries(stai PRIVATE
   SceProcEventForDriver_stub
   SceSysclibForDriver_stub
   SceModulemgrForDriver_stub
+  SceProcessmgrForDriver_stub
   taihenForKernel_stub
   gcc
 

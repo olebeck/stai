@@ -143,35 +143,43 @@ public:
 
 class Processes {
 private:
-  SortedVec<Process, SceUID, &Process::pid> vec;
-
+  static int kpls_slot;
 public:
   Processes() = default;
 
-  Process* get(SceUID pid) {
-    auto find = vec.find(pid);
-    if(find.is_found()) {
-      return &vec[find.index()];
-    }
-    return nullptr;
+  static int init() {
+    kpls_slot = ksceKernelCreateProcessLocalStorage("stai_process", sizeof(Process));
+    LOGD("ksceKernelCreateProcessLocalStorage: %d", kpls_slot);
+    return kpls_slot;
   }
 
-  Process* get_or_create(SceUID pid) {
-    auto find = vec.find(pid);
-    if(find.is_found()) {
-      return &vec[find.index()];
+  static Process* get(SceUID pid) {
+    Process* process = nullptr;
+    ksceKernelGetProcessLocalStorageAddrForPid(pid, kpls_slot, (void**)&process, 0);
+    if(process->pid == 0) {
+      return nullptr;
     }
-    return vec.emplace_at(find, pid);
+    return process;
   }
 
-  void cleanup(SceUID pid) {
-    auto find = vec.find(pid);
-    if(!find.is_found()) {
-      return;
+  static Process* get_or_create(SceUID pid) {
+    Process* process = nullptr;
+    ksceKernelGetProcessLocalStorageAddrForPid(pid, kpls_slot, (void**)&process, 1);
+    if(process && process->pid == 0) {
+      process = new(process) Process(pid);
     }
-    vec.erase(find.index());
+    return process;
+  }
+
+  static void cleanup(SceUID pid) {
+    Process* process = Processes::get(pid);
+    if(process) {
+      process->~Process();
+    }
   }
 };
+
+int Processes::kpls_slot = -1;
 
 struct HookLocation {
   enum class Type {
@@ -781,12 +789,11 @@ int Patch::remove_hook(CtxSwitched sw, Process* process, User<StaiRef> hook_ref)
 }
 
 static SceUID hook_lock = -1;
-static Processes processes = {};
 
 int hook_function(CtxSwitched sw, SceUID pid, HookLocation& location, u32 dest_func, User<StaiRef> hook_ref) {
   LOG_FUNC();
   ScopeLock lock(hook_lock);
-  Process* process = processes.get_or_create(pid);
+  Process* process = Processes::get_or_create(pid);
   if(!process) {
     return STAI_ERROR_OOM;
   }
@@ -821,7 +828,7 @@ int hook_function(CtxSwitched sw, SceUID pid, HookLocation& location, u32 dest_f
 
 int unhook_function(CtxSwitched sw, SceUID pid, User<StaiRef> hook_ref) {
   ScopeLock lock(hook_lock);
-  Process* process = processes.get_or_create(pid);
+  Process* process = Processes::get_or_create(pid);
   if(!process) {
     return STAI_ERROR_OOM;
   }
@@ -926,7 +933,7 @@ extern "C" EXPORTED int _staiHookModuleStart(const _stai_hook_module_start_args*
 
   User<StaiRef> hook_ref = (StaiRef*)args.ref;
 
-  Process* process = processes.get_or_create(pid);
+  Process* process = Processes::get_or_create(pid);
   if(!process) {
     LOGD("failed to get or create process for pid %d", pid);
     return STAI_ERROR_OOM;
@@ -976,6 +983,7 @@ extern "C" EXPORTED int _staiFindModuleByLibraryNid(u32 library_nid, stai_module
 }
 
 int hooks::init() {
+  Processes::init();
   hook_lock = ksceKernelCreateMutex("stai_hook_lock", 0, 0, nullptr);
   return 0;
 }
@@ -983,7 +991,7 @@ int hooks::init() {
 int hooks::before_module_start(SceUID pid, SceUID modid) {
   LOG_FUNC();
   ScopeLock lock(hook_lock);
-  Process* process = processes.get(pid);
+  Process* process = Processes::get(pid);
   if(!process) {
     return 0;
   }
@@ -999,7 +1007,7 @@ int hooks::before_module_start(SceUID pid, SceUID modid) {
 int hooks::after_module_unload(SceModuleCB& module_cb) {
   LOG_FUNC();
   ScopeLock lock(hook_lock);
-  Process* process = processes.get(module_cb.pid);
+  Process* process = Processes::get(module_cb.pid);
   if(process) {
     LOGD("cleanup_module: pid %d, modid %d", module_cb.pid, module_cb.modid_kernel);
     process->cleanup_module(module_cb);
@@ -1007,9 +1015,9 @@ int hooks::after_module_unload(SceModuleCB& module_cb) {
   return 0;
 }
 
-int hooks::on_process_exit(SceUID pid) {
+int hooks::on_process_delete(SceUID pid) {
   LOG_FUNC();
   ScopeLock lock(hook_lock);
-  processes.cleanup(pid);
+  Processes::cleanup(pid);
   return 0;
 }
