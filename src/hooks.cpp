@@ -156,7 +156,7 @@ public:
   static Process* get(SceUID pid) {
     Process* process = nullptr;
     ksceKernelGetProcessLocalStorageAddrForPid(pid, kpls_slot, (void**)&process, 0);
-    if(process->pid == 0) {
+    if(process == nullptr || process->pid == 0) {
       return nullptr;
     }
     return process;
@@ -989,7 +989,6 @@ int hooks::init() {
 }
 
 int hooks::before_module_start(SceUID pid, SceUID modid) {
-  LOG_FUNC();
   ScopeLock lock(hook_lock);
   Process* process = Processes::get(pid);
   if(!process) {
