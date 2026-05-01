@@ -36,7 +36,8 @@ typedef struct stai_module_info {
   size_t size;
   SceUID module_uid;
   uint32_t fingerprint;
-  uintptr_t text_base;
+  uint32_t text_base;
+  uint32_t text_size;
 } stai_module_info;
 
 #define STAI_CONTINUE(fn, hook, ...) ({ \

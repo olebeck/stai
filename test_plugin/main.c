@@ -4,6 +4,10 @@
 #include <psp2/sysmodule.h>
 #include "../include/stai/stai.h"
 
+void* memset(void* dst, int ch, size_t len) {
+    return sceClibMemset(dst, ch, len);
+}
+
 const uint32_t SceHttp_library_nid = 0xE8F15CDE;
 
 typedef struct http_template_t {

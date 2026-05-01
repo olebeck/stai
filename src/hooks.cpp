@@ -985,9 +985,13 @@ extern "C" EXPORTED int _staiFindModuleByLibraryNid(u32 library_nid, stai_module
   }
 
   SceModuleCB* module_cb;
-  int ret = librarydb_get_module_by_library_nid(pid, library_nid, &module_cb);
-  if(ret < 0) {
-    return ret;
+  if(library_nid == STAI_MAIN_MODULE) {
+    module_cb = (SceModuleCB*)ksceKernelGetProcessModuleInfo(pid);
+  } else {
+    int ret = librarydb_get_module_by_library_nid(pid, library_nid, &module_cb);
+    if(ret < 0) {
+      return ret;
+    }
   }
 
   if(out_module_info) {
@@ -995,7 +999,8 @@ extern "C" EXPORTED int _staiFindModuleByLibraryNid(u32 library_nid, stai_module
       .size = sizeof(stai_module_info),
       .module_uid = module_cb->modid_user,
       .fingerprint = module_cb->fingerprint,
-      .text_base = (u32)module_cb->segments.segments[0].base_addr
+      .text_base = (u32)module_cb->segments.segments[0].base_addr,
+      .text_size = (u32)module_cb->segments.segments[0].memsz
     };
     ksceKernelCopyToUser(out_module_info, &module_info, sizeof(stai_module_info));
   }
