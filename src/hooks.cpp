@@ -308,7 +308,9 @@ void always_inline cache_flush_user(CtxSwitched, u32 vma, size_t len) {
   LOGD("vma %p, vma_align %p, len 0x%x", vma, vma_align, len_align);
 
   u32 old_dacr = swap_dacr(0x15450FC3);
+#if LOG_LEVEL >= 2
   hex_dump((void*)vma_align, len_align);
+#endif
   ksceKernelL1DcacheCleanInvalidateRange((void*)vma_align, len_align);
   ksceKernelIcacheInvalidateRange((void*)vma_align, len_align);
   write_dacr(old_dacr);
@@ -675,7 +677,9 @@ int patch_function(CtxSwitched sw, Process* process, Patch* patch, u32 dest_func
     u32 old_dacr = swap_dacr(0x15450FC3);
 
     LOGD("target_addr: %08x", args->hook.function);
+#if LOG_LEVEL >= 2
     hex_dump((void*)((u32)args->hook.function & ~1), 0x20);
+#endif
     args->ret = substitute_hook_functions(&args->hook, 1, args->record, SUBSTITUTE_RELAXED);
 
     write_dacr(old_dacr);
@@ -867,6 +871,14 @@ int unhook_function(CtxSwitched sw, SceUID pid, User<StaiRef> hook_ref) {
   return 0;
 }
 
+int resolve_module_uid(SceUID pid, SceUID module_puid) {
+  if(module_puid == 0) {
+    SceModuleCB* process_module_cb = (SceModuleCB*)ksceKernelGetProcessModuleInfo(pid);
+    return process_module_cb->modid_kernel;
+  }
+  return kscePUIDtoGUID(pid, module_puid);
+}
+
 extern "C" EXPORTED int _staiHookOffset(const _stai_hook_offset_args* uargs) {
   LOG_FUNC();
   auto syscall = enter_syscall();
@@ -874,7 +886,7 @@ extern "C" EXPORTED int _staiHookOffset(const _stai_hook_offset_args* uargs) {
   auto args = read_user(sw, uargs);
   SceUID pid = ksceKernelGetProcessId();
 
-  SceUID module_uid = kscePUIDtoGUID(pid, args.module_uid);
+  SceUID module_uid = resolve_module_uid(pid, args.module_uid);
   if(module_uid < 0) {
     LOGD("invalid module_uid: %d", args.module_uid);
     return STAI_ERROR_INVALID_ARGS;
@@ -894,7 +906,7 @@ extern "C" EXPORTED int _staiHookExport(const _stai_hook_nid_args* uargs) {
   auto args = read_user(sw, uargs);
   SceUID pid = ksceKernelGetProcessId();
 
-  SceUID module_uid = kscePUIDtoGUID(pid, args.module_uid);
+  SceUID module_uid = resolve_module_uid(pid, args.module_uid);
   if(module_uid < 0) {
     return STAI_ERROR_INVALID_ARGS;
   }
@@ -916,7 +928,7 @@ extern "C" EXPORTED int _staiHookImport(const _stai_hook_nid_args* uargs) {
   auto args = read_user(sw, uargs);
   SceUID pid = ksceKernelGetProcessId();
 
-  SceUID module_uid = kscePUIDtoGUID(pid, args.module_uid);
+  SceUID module_uid = resolve_module_uid(pid, args.module_uid);
   if(module_uid < 0) {
     return STAI_ERROR_INVALID_ARGS;
   }
@@ -990,7 +1002,7 @@ extern "C" EXPORTED int _staiFindModuleByLibraryNid(u32 library_nid, stai_module
   return 0;
 }
 
-int hooks::init(SceUID SceKernelModulemgr_modid) {
+int hooks_init(SceUID SceKernelModulemgr_modid) {
   Processes::init();
   hook_lock = ksceKernelCreateMutex("stai_hook_lock", 0, 0, nullptr);
 

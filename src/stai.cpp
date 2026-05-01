@@ -59,8 +59,8 @@ extern "C" EXPORTED int module_start(SceSize argc, const void* argv) {
     return ret;
   }
 
-  ret = hooks::init(SceKernelModulemgr_modid);
-  LOGD("hooks::init: %08x", ret);
+  ret = hooks_init(SceKernelModulemgr_modid);
+  LOGD("hooks_init: %08x", ret);
   if(ret < 0) {
     return ret;
   }

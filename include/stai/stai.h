@@ -21,6 +21,8 @@ extern "C" {
 #define STAI_ERROR_INVALID_ARGS   (STAI_ERROR_BASE + 0x16)
 #define STAI_SUCCESS              (0)
 
+#define STAI_MAIN_MODULE (0)
+
 #define STAI_INLINE __attribute__((always_inline)) inline
 
 typedef struct stai_ref_t {

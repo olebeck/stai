@@ -1,6 +1,3 @@
 #include "types.h"
 
-namespace hooks {
-  int init(SceUID SceKernelModulemgr_modid);
-};
-
+int hooks_init(SceUID SceKernelModulemgr_modid);
