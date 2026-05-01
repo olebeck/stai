@@ -16,8 +16,10 @@ int heap_init() {
 }
 
 void* malloc(size_t size) {
+  uint32_t lr;
+  asm volatile ("mov %0, lr" : "=r" (lr));
   void* ptr = ksceKernelAllocHeapMemory(heap_uid, size);
-  LOGD("size=%x ptr=%p", size, ptr);
+  LOGD("size=%x ptr=%p lr=%p", size, ptr, lr);
   return ptr;
 }
 

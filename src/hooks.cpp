@@ -3,6 +3,8 @@
 #include <psp2kern/kernel/processmgr.h>
 #include <psp2kern/kernel/sysmem.h>
 #include <psp2kern/kernel/threadmgr.h>
+#include <psp2kern/kernel/proc_event.h>
+#include <taihen.h>
 
 #include "../include/stai/stai.h"
 #include "hooks.h"
@@ -16,6 +18,8 @@ extern "C" {
 }
 
 #define PATCH_ITEM_SIZE (0x100)
+
+static SceUID hook_lock = -1;
 
 struct Patch;
 struct PageRemap;
@@ -78,43 +82,19 @@ struct PendingWrite {
 };
 
 struct ModuleStartReg {
-  struct Entry {
-    u32 dest_func;
-    User<StaiRef> hook_ref;
-
-    Entry(u32 dest_func, User<StaiRef> hook_ref) : dest_func(dest_func), hook_ref(hook_ref) {}
-    Entry(const Entry&) = delete;
-    Entry& operator=(const Entry&) = delete;
-    Entry(Entry&&) = default;
-    Entry& operator=(Entry&&) = default;
-  };
-
   u32 library_nid;
-  Vec<Entry> entries;
+  u32 dest_func;
+  User<StaiRef> hook_ref;
 
-  ModuleStartReg(u32 library_nid) : library_nid(library_nid) {}
-  ModuleStartReg(const ModuleStartReg&) = delete;
-  ModuleStartReg& operator=(const ModuleStartReg&) = delete;
+  ModuleStartReg() : library_nid(0), dest_func(0), hook_ref(0) {}
+  ModuleStartReg(u32 library_nid, u32 dest_func,  User<StaiRef> hook_ref) : library_nid(library_nid), dest_func(dest_func), hook_ref(hook_ref) {}
+  ModuleStartReg(const ModuleStartReg&) = default;
+  ModuleStartReg& operator=(const ModuleStartReg&) = default;
   ModuleStartReg(ModuleStartReg&&) = default;
   ModuleStartReg& operator=(ModuleStartReg&&) = default;
 };
 
-typedef SortedVec<ModuleStartReg, u32, &ModuleStartReg::library_nid> ModuleStartRegVec;
-
-struct ModuleStartPatch {
-  SceUID module_uid;
-  u32 module_start;
-  Vec<User<StaiRef>> chain;
-
-  ModuleStartPatch(SceUID module_uid) : module_uid(module_uid), module_start(0) {}
-
-  ModuleStartPatch(const ModuleStartPatch&) = delete;
-  ModuleStartPatch& operator=(const ModuleStartPatch&) = delete;
-  ModuleStartPatch(ModuleStartPatch&&) = default;
-  ModuleStartPatch& operator=(ModuleStartPatch&&) = default;
-};
-
-typedef SortedVec<ModuleStartPatch, SceUID, &ModuleStartPatch::module_uid> ModuleStartPatchVec;
+typedef SortedDupVec<ModuleStartReg, u32, &ModuleStartReg::library_nid> ModuleStartRegVec;
 
 class Process {
 public:
@@ -123,7 +103,6 @@ public:
   PatchVec patches;
   PageRemapVec remaps;
   ModuleStartRegVec module_start_regs;
-  ModuleStartPatchVec module_start_patches;
 
   Process(SceUID pid) : pid(pid) {
     slab_init(&this->sch, PATCH_ITEM_SIZE, pid);
@@ -135,9 +114,16 @@ public:
 
   ~Process() {
     slab_destroy(&this->sch);
+    this->pid = 0;
+
+    for(auto& patch : this->patches) {
+      if(patch.record) {
+        free(patch.record);
+        patch.record = nullptr;
+      }
+    }
   }
 
-  void before_module_start(SceModuleCB& module_cb);
   void cleanup_module(SceModuleCB& module_cb);
 };
 
@@ -173,7 +159,7 @@ public:
 
   static void cleanup(SceUID pid) {
     Process* process = Processes::get(pid);
-    if(process) {
+    if(process && process->pid != 0) {
       process->~Process();
     }
   }
@@ -547,59 +533,93 @@ extern "C" int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write*
   return 0;
 }
 
-void Process::before_module_start(SceModuleCB& module_cb) {
-  ProcessCtx&& ctx = switch_ctx(module_cb.pid);
+void hook_module_start(SceModuleCB& module_cb) {
+  ScopeLock lock(hook_lock);
+  Process* process = Processes::get(module_cb.pid);
+  if(!process) {
+    return;
+  }
 
-  ModuleStartPatch* patch = nullptr;
+  ProcessCtx&& ctx = switch_ctx(module_cb.pid);
+  ModuleStartReg first;
+  ModuleStartReg last;
+
   for(size_t i = 0; i < module_cb.lib_export_num; i++) {
     SceModuleExport* exp = &module_cb.exports[i];
-    auto find = this->module_start_regs.find(exp->library_nid);
-    if(!find.is_found()) {
-      continue;
-    }
-    ModuleStartReg& reg = this->module_start_regs[find.index()];
-
-    if(patch == nullptr) {
-      patch = this->module_start_patches.emplace(module_cb.modid_kernel);
-      if(patch == nullptr) {
-        LOGD("failed to create module start patch");
-        return;
+    auto slice = process->module_start_regs.slice(exp->library_nid);
+    for(auto& reg : slice) {
+      if(first.dest_func == 0) {
+        first = reg;
       }
-    }
-
-    for(size_t j = 0; j < reg.entries.size(); j++) {
-      auto& entry = reg.entries[j];
-
-      if(patch->module_start == 0) {
-        patch->module_start = (u32)module_cb.module_start;
-        module_cb.module_start = (void*)entry.dest_func;
-        entry.hook_ref.write(ctx.sw(), StaiRef{
-          .next = nullptr,
-          .func = entry.dest_func,
-          .old = patch->module_start,
-          .target_addr = 0
-        });
-        patch->chain.emplace_back(entry.hook_ref);
-        continue;
-      }
-
-      auto prev = patch->chain[patch->chain.size() - 1];
-      entry.hook_ref.write(ctx.sw(), StaiRef{
-        .next = prev,
-        .func = entry.dest_func,
-        .old = patch->module_start,
-        .target_addr = 0
+      reg.hook_ref.write(ctx.sw(), StaiRef{
+        .next = last.hook_ref,
+        .func = reg.dest_func,
+        .old = (u32)module_cb.module_start
       });
-      patch->chain.emplace_back(entry.hook_ref);
-
-      auto prev_ref = prev.read(ctx.sw());
-      prev_ref.next = entry.hook_ref;
-      prev_ref.old = 0;
-      prev.write(ctx.sw(), prev_ref);
+      last = reg;
     }
   }
 
+  if(first.dest_func) {
+    module_cb.module_start = (void*)first.dest_func;
+  }
+
   restore_ctx(std::move(ctx));
+}
+
+int on_process_exit(SceUID pid, SceProcEventInvokeParam1 *a2, int a3) {
+  LOG_FUNC();
+  ScopeLock lock(hook_lock);
+  Processes::cleanup(pid);
+  return 0;
+};
+
+int on_process_kill(SceUID pid, SceProcEventInvokeParam1 *a2, int a3) {
+  LOG_FUNC();
+  ScopeLock lock(hook_lock);
+  Processes::cleanup(pid);
+  return 0;
+};
+
+static SceProcEventHandler proc_event_handler = {
+  .size = sizeof(SceProcEventHandler),
+  .exit = on_process_exit,
+  .kill = on_process_kill,
+};
+
+void after_module_unload(SceModuleCB& module_cb) {
+  LOG_FUNC();
+  ScopeLock lock(hook_lock);
+  Process* process = Processes::get(module_cb.pid);
+  if(process) {
+    process->cleanup_module(module_cb);
+  }
+}
+
+static tai_hook_ref_t ModulemgrDestructor_hook_ref;
+static SceUID ModulemgrDestructor_hook_id = -1;
+static int ModulemgrDestructor_hook(void* data) {
+  SceModuleObject* module_obj = (SceModuleObject*)data;
+  SceModuleCB& module_cb = module_obj->data;
+  if(module_cb.pid != KERNEL_PID) {
+    after_module_unload(module_cb);
+  }
+  return TAI_CONTINUEPP(ModulemgrDestructor_hook, ModulemgrDestructor_hook_ref, data);
+}
+
+static tai_hook_ref_t startModuleCommon_hook_ref;
+static SceUID startModuleCommon_hook_id = -1;
+static int startModuleCommon_hook(SceUID pid, SceUID modid, size_t args, void* argp, void* param_5, void* option, int* status) {
+  SceModuleCB* module_cb;
+  int ret = ksceKernelGetModuleCB(modid, (void**)&module_cb);
+  if(ret < 0) {
+    return ret;
+  }
+  void* real_module_start = module_cb->module_start;
+  hook_module_start(*module_cb);
+  ret = TAI_CONTINUEPP(startModuleCommon_hook, startModuleCommon_hook_ref, pid, modid, args, argp, param_5, option, status);
+  module_cb->module_start = real_module_start;
+  return ret;
 }
 
 void Process::cleanup_module(SceModuleCB& module_cb) {
@@ -625,8 +645,6 @@ void Process::cleanup_module(SceModuleCB& module_cb) {
     }
   }
   this->remaps.erase_slice(std::move(remap_slice));
-
-  this->module_start_patches.erase(module_cb.modid_kernel);
 }
 
 int patch_function(CtxSwitched sw, Process* process, Patch* patch, u32 dest_func, User<StaiRef> hook_ref) {
@@ -788,8 +806,6 @@ int Patch::remove_hook(CtxSwitched sw, Process* process, User<StaiRef> hook_ref)
   return 0;
 }
 
-static SceUID hook_lock = -1;
-
 int hook_function(CtxSwitched sw, SceUID pid, HookLocation& location, u32 dest_func, User<StaiRef> hook_ref) {
   LOG_FUNC();
   ScopeLock lock(hook_lock);
@@ -820,7 +836,7 @@ int hook_function(CtxSwitched sw, SceUID pid, HookLocation& location, u32 dest_f
   }
   ret = patch_function(sw, process, patch, dest_func, hook_ref);
   if(ret < 0) {
-    process->patches.erase(find.index());
+    process->patches.erase(find);
     return ret;
   }
   return 0;
@@ -846,7 +862,7 @@ int unhook_function(CtxSwitched sw, SceUID pid, User<StaiRef> hook_ref) {
     return ret;
   }
   if(patch.chain.size() == 0) {
-    process->patches.erase(find.index());
+    process->patches.erase(find);
   }
   return 0;
 }
@@ -938,16 +954,8 @@ extern "C" EXPORTED int _staiHookModuleStart(const _stai_hook_module_start_args*
     LOGD("failed to get or create process for pid %d", pid);
     return STAI_ERROR_OOM;
   }
-  auto find = process->module_start_regs.find(args.library_nid);
-  if(!find.is_found()) {
-    if(process->module_start_regs.emplace_at(find, args.library_nid) == nullptr) {
-      LOGD("failed to emplace module start reg for library_nid 0x%08x", args.library_nid);
-      return STAI_ERROR_OOM;
-    }
-  }
-  auto& reg = process->module_start_regs[find.index()];
-  if(reg.entries.emplace_back(args.dest_func, hook_ref) == nullptr) {
-    LOGD("failed to emplace module start entry for library_nid 0x%08x", args.library_nid);
+  if(process->module_start_regs.emplace(args.library_nid, args.dest_func, hook_ref) == nullptr) {
+    LOGD("failed to emplace module start reg for library_nid 0x%08x", args.library_nid);
     return STAI_ERROR_OOM;
   }
   return 0;
@@ -982,41 +990,47 @@ extern "C" EXPORTED int _staiFindModuleByLibraryNid(u32 library_nid, stai_module
   return 0;
 }
 
-int hooks::init() {
+int hooks::init(SceUID SceKernelModulemgr_modid) {
   Processes::init();
   hook_lock = ksceKernelCreateMutex("stai_hook_lock", 0, 0, nullptr);
-  return 0;
-}
 
-int hooks::before_module_start(SceUID pid, SceUID modid) {
-  ScopeLock lock(hook_lock);
-  Process* process = Processes::get(pid);
-  if(!process) {
-    return 0;
-  }
-  SceModuleCB* module_cb;
-  int ret = ksceKernelGetModuleCB(modid, (void**)&module_cb);
+  int ret = ksceKernelRegisterProcEventHandler("stai_proc_event", &proc_event_handler, 0);
+  LOGD("ksceKernelRegisterProcEventHandler: %08x", ret);
   if(ret < 0) {
     return ret;
   }
-  process->before_module_start(*module_cb);
-  return 0;
-}
 
-int hooks::after_module_unload(SceModuleCB& module_cb) {
-  LOG_FUNC();
-  ScopeLock lock(hook_lock);
-  Process* process = Processes::get(module_cb.pid);
-  if(process) {
-    LOGD("cleanup_module: pid %d, modid %d", module_cb.pid, module_cb.modid_kernel);
-    process->cleanup_module(module_cb);
+  SceClass* SceUIDModuleClass;
+  ret = ksceKernelFindClassByName("SceUIDModuleClass", &SceUIDModuleClass);
+  LOGD("ksceKernelFindClassByName: %08x", ret);
+  if(ret < 0) {
+    return ret;
   }
-  return 0;
-}
 
-int hooks::on_process_delete(SceUID pid) {
-  LOG_FUNC();
-  ScopeLock lock(hook_lock);
-  Processes::cleanup(pid);
+  ret = taiHookFunctionAbs(
+    KERNEL_PID,
+    &ModulemgrDestructor_hook_ref,
+    (void*)SceUIDModuleClass->destroy_cb,
+    (void*)ModulemgrDestructor_hook
+  );
+  LOGD("taiHookFunctionAbs: %08x", ret);
+  if(ret < 0) {
+    return ret;
+  }
+  ModulemgrDestructor_hook_id = ret;
+
+  const u32 startModuleCommon_offset = 0x286C;
+  ret = taiHookFunctionOffsetForKernel(
+    KERNEL_PID,
+    &startModuleCommon_hook_ref,
+    SceKernelModulemgr_modid,
+    0, startModuleCommon_offset, 1,
+    (void*)startModuleCommon_hook
+  );
+  LOGD("taiHookFunctionOffsetForKernel: %08x", ret);
+  if(ret < 0) {
+    return ret;
+  }
+  startModuleCommon_hook_id = ret;
   return 0;
 }

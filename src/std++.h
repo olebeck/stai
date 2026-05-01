@@ -156,6 +156,7 @@ public:
   ~Vec() {
     destroy_all();
     free(m_data);
+    m_data = nullptr;
   }
 
   size_t size()     const { return m_size; }
@@ -353,9 +354,11 @@ struct FindResult {
 };
 
 template<typename T, typename Key, Key T::* KeyElem>
-class SortedVec : Vec<T> {
+class SortedVec : protected Vec<T> {
 public:
   using Vec<T>::operator[];
+  using Vec<T>::begin;
+  using Vec<T>::end;
   using Slice = typename Vec<T>::Slice;
 
   FindResult find(Key key) const {
@@ -363,7 +366,6 @@ public:
     if(size == 0) {
       return FindResult(0, false);
     }
-
     size_t base = 0;
     while(size > 1) {
       size_t half = size / 2;
@@ -372,7 +374,6 @@ public:
       base = greater ? base : mid;
       size -= half;
     }
-
     Key key2 = (this->data() + base)->*KeyElem;
     if(key2 == key) {
       return FindResult(base, true);
@@ -390,15 +391,19 @@ public:
   template<typename... Args>
   T* emplace(Args&& ... args) {
     T temp(std::forward<decltype(args)>(args)...);
-    FindResult result = find(temp.*KeyElem);
+    FindResult result = this->find(temp.*KeyElem);
     if(result.is_found()) {
       return nullptr;
     }
     return emplace_at(result, std::move(temp));
   }
 
+  void erase(FindResult result) {
+    Vec<T>::erase(result.index());
+  }
+
   bool erase(Key key) {
-    auto result = find(key);
+    auto result = this->find(key);
     if(result.is_found()) {
       Vec<T>::erase(result.index());
       return true;
@@ -422,5 +427,55 @@ public:
       return {nullptr, 0};
     }
     return {this->data() + start_index, end_index - start_index};
+  }
+};
+
+template<typename T, typename Key, Key T::* KeyElem>
+class SortedDupVec : SortedVec<T, Key, KeyElem> {
+private:
+  using super = SortedVec<T, Key, KeyElem>;
+public:
+  using Vec<T>::operator[];
+  using Vec<T>::begin;
+  using Vec<T>::end;
+  using Slice = typename Vec<T>::Slice;
+
+  bool find(Key key, size_t& start, size_t& end) const {
+    auto result = super::find(key);
+    if(!result.is_found()) {
+      return false;
+    }
+    start = end = result.index();
+    while(start > 0 && (this->data() + start - 1)->*KeyElem == key) {
+      --start;
+    }
+    while(end < this->size() && (this->data() + end)->*KeyElem == key) {
+      ++end;
+    }
+    return true;
+  }
+
+  template<typename... Args>
+  T* emplace(Args&& ... args) {
+    T temp(std::forward<decltype(args)>(args)...);
+    FindResult result = super::find(temp.*KeyElem);
+    return super::emplace_at(result, std::move(temp));
+  }
+
+  bool erase(Key key) {
+    size_t start, end;
+    if(!this->find(key, start, end)) {
+      return false;
+    }
+    Vec<T>::erase_range(start, end);
+    return true;
+  }
+
+  Slice slice(Key key) const {
+    size_t start, end;
+    if(!this->find(key, start, end)) {
+      return Slice{nullptr, 0};
+    }
+    return Slice{this->data() + start, end - start};
   }
 };
