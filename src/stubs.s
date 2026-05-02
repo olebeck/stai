@@ -47,6 +47,7 @@ vitastub_ver SceSysmemForKernel, ksceKernelFindClassByName, 0x18, 0x63A519E5, 0x
 vitastub_ver SceSysmemForKernel, ksceKernelReallocHeapMemory, 0x18, 0x63A519E5, 0xFDC0EA11, 0x02451F0F, 0x8EE8B917
 vitastub_ver SceProcessmgrForKernel, ksceKernelGetProcessModuleInfo, 0x18, 0x7A69DE86, 0xC1C91BB2, 0xEB1F8EF7, 0x3AF6B088
 vitastub_ver SceModulemgrForKernel, ksceKernelGetModuleCB, 0x18, 0xC445FA63, 0xFE303863, 0x92C9FFC2, 0x37512E29
+vitastub_ver SceModulemgrForKernel, ksceKernelGetModuleIdByPid, 0x18, 0xC445FA63, 0x20A27FA9, 0x92C9FFC2, 0x679F5144
 
 // ksceKernelPrintf but renamed for substitute
 vitastub SceDebugForDriver, printf, 0x10, 0x88758561, 0x391b74b7

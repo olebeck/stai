@@ -294,17 +294,22 @@ static always_inline void flush_tlb(u32 vaddr) {
   asm volatile("mcr p15, 0, %0, c8, c7, 1" ::"r"(vaddr));
 }
 
+void align_cache_line(u32 vma, u32 len, u32& vma_align, u32& len_align) {
+  vma_align = vma & ~0x1F;
+  len_align = ((vma - vma_align + len + 0x1F) & ~0x1F);
+}
+
 void always_inline cache_flush_kernel(u32 vma, size_t len) {
-  u32 vma_align = vma & ~0x1F;
-  size_t len_align = ((vma - vma_align + len + 0x1F) & ~0x1F);
+  u32 vma_align, len_align;
+  align_cache_line(vma, len, vma_align, len_align);
   LOGD("vma %p, vma_align %p, len 0x%x", vma, vma_align, len_align);
   ksceKernelL1DcacheCleanInvalidateRange((void*)vma_align, len_align);
   ksceKernelIcacheInvalidateRange((void*)vma_align, len_align);
 };
 
 void always_inline cache_flush_user(CtxSwitched, u32 vma, size_t len) {
-  u32 vma_align = vma & ~0x1F;
-  size_t len_align = ((vma - vma_align + len + 0x1F) & ~0x1F);
+  u32 vma_align, len_align;
+  align_cache_line(vma, len, vma_align, len_align);
   LOGD("vma %p, vma_align %p, len 0x%x", vma, vma_align, len_align);
 
   u32 old_dacr = swap_dacr(0x15450FC3);
@@ -399,6 +404,9 @@ void copy_from_to_user_text_domain(void* dst, void* src, size_t len) {
   u32 old_dacr = swap_dacr(0x15450FC3);
   // should usr ldrt and strt but thats not *that* important
   memcpy(dst, src, len); 
+  u32 vma_align, len_align;
+  align_cache_line((u32)dst, len, vma_align, len_align);
+  ksceKernelDcacheInvalidateRange((void*)vma_align, len_align);
   write_dacr(old_dacr);
 }
 
@@ -406,6 +414,9 @@ void copy_to_user_text_domain(void* dst, void* src, size_t len) {
   u32 old_dacr = swap_dacr(0x15450FC3);
   // should usr ldrt and strt but thats not *that* important
   memcpy(dst, src, len);
+  u32 vma_align, len_align;
+  align_cache_line((u32)dst, len, vma_align, len_align);
+  ksceKernelDcacheInvalidateRange((void*)vma_align, len_align);
   write_dacr(old_dacr);
 }
 
@@ -483,7 +494,7 @@ int write_user_text(CtxSwitched sw, SceUID pid, PageRemapVec& remaps, u32 dst, u
     }
     return cow_write(sw, *as, remaps, dst, data, len);
   }
-  ksceKernelCopyToUserTextDomain((void*)dst, data, len);
+  copy_to_user_text_domain((void*)dst, data, len);
   return 0;
 }
 
@@ -674,15 +685,11 @@ int patch_function(CtxSwitched sw, Process* process, Patch* patch, u32 dest_func
   ksceKernelRunWithStack(0x4000, [](void* userarg) {
     hook_args* args = (hook_args*)userarg;
     ProcessCtx&& ctx = switch_ctx(args->pid);
-    u32 old_dacr = swap_dacr(0x15450FC3);
-
     LOGD("target_addr: %08x", args->hook.function);
 #if LOG_LEVEL >= 2
     hex_dump((void*)((u32)args->hook.function & ~1), 0x20);
 #endif
     args->ret = substitute_hook_functions(&args->hook, 1, args->record, SUBSTITUTE_RELAXED);
-
-    write_dacr(old_dacr);
     restore_ctx(std::move(ctx));
     return 0;
   }, &args);
@@ -873,8 +880,7 @@ int unhook_function(CtxSwitched sw, SceUID pid, User<StaiRef> hook_ref) {
 
 int resolve_module_uid(SceUID pid, SceUID module_puid) {
   if(module_puid == 0) {
-    SceModuleCB* process_module_cb = (SceModuleCB*)ksceKernelGetProcessModuleInfo(pid);
-    return process_module_cb->modid_kernel;
+    return ksceKernelGetModuleIdByPid(pid);
   }
   return kscePUIDtoGUID(pid, module_puid);
 }
@@ -984,14 +990,16 @@ extern "C" EXPORTED int _staiFindModuleByLibraryNid(u32 library_nid, stai_module
     return STAI_ERROR_INVALID_ARGS;
   }
 
+  int ret;
   SceModuleCB* module_cb;
   if(library_nid == STAI_MAIN_MODULE) {
-    module_cb = (SceModuleCB*)ksceKernelGetProcessModuleInfo(pid);
+    SceUID module_uid = ksceKernelGetModuleIdByPid(pid);
+    ret = ksceKernelGetModuleCB(module_uid, (void**)&module_cb);
   } else {
-    int ret = librarydb_get_module_by_library_nid(pid, library_nid, &module_cb);
-    if(ret < 0) {
-      return ret;
-    }
+    ret = librarydb_get_module_by_library_nid(pid, library_nid, &module_cb);
+  }
+  if(ret < 0) {
+    return ret;
   }
 
   if(out_module_info) {
