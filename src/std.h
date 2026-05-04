@@ -65,18 +65,6 @@ void __aeabi_atexit(void* obj, void (*dtor)(void*), void* dso_handle);
 
 #define debug_assert(cond) assert(cond)
 
-#define TAI_CONTINUEPP(fn, hook, ...) ({ \
-  struct _tai_hook_user *cur, *next; \
-  cur = (struct _tai_hook_user *)(hook); \
-  next = (struct _tai_hook_user *)cur->next; \
-  typedef __typeof__(fn) *_fn_ptr_type; \
-    (next == NULL)  ? \
-    ((_fn_ptr_type)(cur->old))(__VA_ARGS__) \
-  : \
-    ((_fn_ptr_type)(next->func))(__VA_ARGS__) \
-  ; \
-})
-
 #ifdef __cplusplus
 }
 #endif

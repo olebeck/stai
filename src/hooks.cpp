@@ -70,11 +70,11 @@ struct PageRemap {
 typedef SortedVec<PageRemap, u32, &PageRemap::target_vaddr> PageRemapVec;
 
 struct PendingWrite {
-  u32 dst;
-  u32 len;
+  u32 dst = 0;
+  u32 len = 0;
   u8 data[0x100];
 
-  PendingWrite() : dst(0), len(0) {}
+  PendingWrite() = default;
   bool pending() const { return this->dst != 0; }
   int commit(CtxSwitched sw, SceUID pid, PageRemapVec& remaps);
 };
@@ -93,26 +93,24 @@ struct ModuleStartReg {
 
 typedef SortedDupVec<ModuleStartReg, u32, &ModuleStartReg::library_nid> ModuleStartRegVec;
 
+typedef SlabChain<PATCH_ITEM_SIZE> ProcessSlabChain;
+
 class Process {
 public:
   SceUID pid;
-  slab_chain sch;
+  ProcessSlabChain sch;
   PatchVec patches;
   PageRemapVec remaps;
   ModuleStartRegVec module_start_regs;
 
-  Process(SceUID pid) : pid(pid) {
-    slab_init(&this->sch, PATCH_ITEM_SIZE, pid);
-  }
+  Process(SceUID pid) : pid(pid) {}
   Process(const Process&) = delete;
   Process& operator=(const Process&) = delete;
   Process(Process&&) = default;
   Process& operator=(Process&&) = default;
 
   ~Process() {
-    slab_destroy(&this->sch);
     this->pid = 0;
-
     for(auto& patch : this->patches) {
       if(patch.record) {
         free(patch.record);
@@ -539,32 +537,33 @@ int PendingWrite::commit(CtxSwitched sw, SceUID pid, PageRemapVec& remaps) {
 
 struct ExecmemCtx {
   CtxSwitched sw;
-  slab_chain* sch;
+  SceUID pid;
+  ProcessSlabChain* sch;
   PendingWrite pending_write;
-  ExecmemCtx(CtxSwitched sw, slab_chain* sch) : sw(sw), sch(sch) {}
+  ExecmemCtx(CtxSwitched sw, SceUID pid, ProcessSlabChain* sch) : sw(sw), pid(pid), sch(sch) {}
 };
 
 extern "C" int execmem_alloc_unsealed(u32 hint, void** ptr, u32* vma, u32* size, void* opt) {
   ExecmemCtx* ctx = (ExecmemCtx*)opt;
-  *ptr = slab_alloc(ctx->sch, vma);
+  *ptr = ctx->sch->alloc(ctx->pid, vma);
   if(*ptr) {
     *size = PATCH_ITEM_SIZE;
-    return 0;
+    return SUBSTITUTE_OK;
   }
   return STAI_ERROR_OOM;
 }
 
 extern "C" int execmem_seal(void* ptr, void* opt) {
   ExecmemCtx* ctx = (ExecmemCtx*)opt;
-  u32 vma = slab_getmirror(ctx->sch, ptr);
+  u32 vma = ctx->sch->getmirror(ptr);
   cache_flush_kernel((u32)ptr, PATCH_ITEM_SIZE);
   cache_flush_user(ctx->sw, vma, PATCH_ITEM_SIZE);
-  return 1;
+  return SUBSTITUTE_OK;
 }
 
 extern "C" void execmem_free(void* ptr, void* opt) {
   ExecmemCtx* ctx = (ExecmemCtx*)opt;
-  slab_free(ctx->sch, ptr);
+  ctx->sch->free(ptr);
 }
 
 extern "C" int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write* writes, size_t nwrites, execmem_pc_patch_callback callback, void* callback_ctx) {
@@ -578,7 +577,7 @@ extern "C" int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write*
   ctx->pending_write.len = write->len;
   debug_assert(write->len < sizeof(ctx->pending_write.data));
   memcpy(ctx->pending_write.data, write->src, write->len);
-  return 0;
+  return SUBSTITUTE_OK;
 }
 
 void hook_module_start(SceModuleCB& module_cb) {
@@ -647,6 +646,18 @@ void after_module_unload(SceModuleCB& module_cb) {
   }
 }
 
+#define TAI_CONTINUEPP(fn, hook, ...) ({ \
+  struct _tai_hook_user *cur, *next; \
+  cur = (struct _tai_hook_user *)(hook); \
+  next = (struct _tai_hook_user *)cur->next; \
+  typedef __typeof__(fn) *_fn_ptr_type; \
+    (next == NULL)  ? \
+    ((_fn_ptr_type)(cur->old))(__VA_ARGS__) \
+  : \
+    ((_fn_ptr_type)(next->func))(__VA_ARGS__) \
+  ; \
+})
+
 static tai_hook_ref_t ModulemgrDestructor_hook_ref;
 static SceUID ModulemgrDestructor_hook_id = -1;
 static int ModulemgrDestructor_hook(void* data) {
@@ -700,7 +711,7 @@ void Process::cleanup_module(SceModuleCB& module_cb) {
 
 int patch_function(CtxSwitched sw, Process* process, Patch* patch, u32 dest_func, User<StaiRef> hook_ref) {
   LOG_FUNC();
-  ExecmemCtx ctx(sw, &process->sch);
+  ExecmemCtx ctx(sw, process->pid, &process->sch);
 
   struct hook_args {
     struct substitute_function_hook hook;

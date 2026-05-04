@@ -40,7 +40,6 @@ public:
 
   always_inline void write(CtxSwitched sw, T& value) {
     ksceKernelCopyToUser(this->ptr, &value, sizeof(T));
-    cache_flush_user(sw, (u32)this->ptr, sizeof(T));
   }
 };
 

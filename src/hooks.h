@@ -1,3 +1,5 @@
-#include "types.h"
+#pragma once
+
+#include <psp2kern/types.h>
 
 int hooks_init(SceUID SceKernelModulemgr_modid);

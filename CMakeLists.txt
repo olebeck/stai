@@ -72,7 +72,6 @@ set_property(TARGET substitute PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
 add_executable(stai
   src/stai.cpp
   src/hooks.cpp
-  src/slab.c
   src/std.c
   src/stubs.s
 )
