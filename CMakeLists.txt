@@ -23,7 +23,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMPILER_FLAGS} -std=gnu++17 -fno-rtti
 add_compile_definitions(LOG_LEVEL=${LOG_LEVEL})
 if(LOG_LEVEL GREATER 1)
   add_compile_definitions(TRANSFORM_DIS_VERBOSE=1)
-  add_compile_definitions(JUMP_DIS_VERBOSE=1)
 endif()
 
 execute_process(
@@ -119,6 +118,7 @@ add_custom_command(OUTPUT stai-vdpm-package.tar.xz
   COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/package/lib
   COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/package/include
   COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/libstai_stub.a ${CMAKE_CURRENT_BINARY_DIR}/package/lib/
+  COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/libstai_stub_weak.a ${CMAKE_CURRENT_BINARY_DIR}/package/lib/
   COMMAND cp -r ${CMAKE_SOURCE_DIR}/include/stai ${CMAKE_CURRENT_BINARY_DIR}/package/include/
   COMMAND tar -C ${CMAKE_CURRENT_BINARY_DIR}/package -cJf stai-vdpm-package.tar.xz lib include
   WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}

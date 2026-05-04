@@ -58,11 +58,9 @@ typedef SortedVec<Patch, u32, &Patch::target_addr> PatchVec;
 
 struct PageRemap {
   u32 target_vaddr;
-  u32 new_vaddr;
   SceUID block_uid;
-  u32 orig_pte;
 
-  PageRemap(u32 target_vaddr, u32 new_vaddr, SceUID block_uid) : target_vaddr(target_vaddr), new_vaddr(new_vaddr), block_uid(block_uid), orig_pte(0) {}
+  PageRemap(u32 target_vaddr, SceUID block_uid) : target_vaddr(target_vaddr), block_uid(block_uid) {}
   PageRemap(const PageRemap&) = delete;
   PageRemap& operator=(const PageRemap&) = delete;
   PageRemap(PageRemap&&) = default;
@@ -86,8 +84,7 @@ struct ModuleStartReg {
   u32 dest_func;
   User<StaiRef> hook_ref;
 
-  ModuleStartReg() : library_nid(0), dest_func(0), hook_ref(0) {}
-  ModuleStartReg(u32 library_nid, u32 dest_func,  User<StaiRef> hook_ref) : library_nid(library_nid), dest_func(dest_func), hook_ref(hook_ref) {}
+  ModuleStartReg(u32 library_nid, u32 dest_func, User<StaiRef> hook_ref) : library_nid(library_nid), dest_func(dest_func), hook_ref(hook_ref) {}
   ModuleStartReg(const ModuleStartReg&) = default;
   ModuleStartReg& operator=(const ModuleStartReg&) = default;
   ModuleStartReg(ModuleStartReg&&) = default;
@@ -203,17 +200,17 @@ void hex_dump(const void* data, size_t size) {
 int module_cb_get_export_func(CtxSwitched, SceModuleCB& module_cb, u32 library_nid, u32 func_nid, u32* p_func) {
   u8* cur = (u8*)module_cb.libent_top;
   while(cur) {
-    SceModuleExport exports;
-    ksceKernelCopyFromUser(&exports, cur, sizeof(exports));
-    if(library_nid == 0xffffffff || exports.library_nid == library_nid) {
-      for(u32 i = 0; i < exports.entry_num_function; i++) {
-        if(exports.table_nid[i] == func_nid) {
-          *p_func = (u32)exports.table_entry[i];
+    SceModuleExport exp;
+    ksceKernelCopyFromUser(&exp, cur, sizeof(exp));
+    if(library_nid == 0xffffffff || exp.library_nid == library_nid) {
+      for(u32 i = 0; i < exp.num_function; i++) {
+        if(exp.nid_vec[i] == func_nid) {
+          *p_func = (u32)exp.entry_vec[i];
           return 0;
         }
       }
     }
-    cur += exports.size;
+    cur += exp.size;
   }
   return 0x8002d081;
 }
@@ -221,17 +218,41 @@ int module_cb_get_export_func(CtxSwitched, SceModuleCB& module_cb, u32 library_n
 int module_cb_get_import_func(CtxSwitched, SceModuleCB& module_cb, u32 library_nid, u32 func_nid, u32* p_func) {
   u8* cur = (u8*)module_cb.libstub_top;
   while(cur < (u8*)module_cb.libstub_btm) {
-    SceModuleImport import;
-    ksceKernelCopyFromUser(&import, cur, sizeof(import));
-    if(library_nid == 0xffffffff || import.library_nid == library_nid) {
-      for(u32 i = 0; i < import.entry_num_function; i++) {
-        if(import.table_func_nid[i] == func_nid) {
-          *p_func = (u32)import.table_func_entry[i];
+    size_t size;
+    ksceKernelCopyFromUser(&size, cur, 4);
+    
+    uint32_t import_library_nid;
+    uint32_t num_function;
+    uint32_t* func_nid_vec;
+    void** func_entry_vec;
+    if(size == sizeof(SceModuleImport1)) {
+      SceModuleImport1 import;
+      ksceKernelCopyFromUser(&import, cur, sizeof(import));
+      import_library_nid = import.library_nid;
+      num_function = import.num_function;
+      func_nid_vec = import.func_nid_vec;
+      func_entry_vec = import.func_entry_vec;
+    } else if(size == sizeof(SceModuleImport2)) {
+      SceModuleImport2 import;
+      ksceKernelCopyFromUser(&import, cur, sizeof(import));
+      import_library_nid = import.library_nid;
+      num_function = import.num_function;
+      func_nid_vec = import.func_nid_vec;
+      func_entry_vec = import.func_entry_vec;
+    } else {
+      LOGE("skipping unknown import format size=%d", size);
+      cur += size;
+      continue;
+    }
+    if(library_nid == 0xffffffff || import_library_nid == library_nid) {
+      for(u32 i = 0; i < num_function; i++) {
+        if(func_nid_vec[i] == func_nid) {
+          *p_func = (u32)func_entry_vec[i];
           return 0;
         }
       }
     }
-    cur += import.size;
+    cur += size;
   }
   return 0x8002d081;
 }
@@ -278,7 +299,7 @@ int librarydb_get_module_by_library_nid(SceUID pid, u32 library_nid, SceModuleCB
 }
 
 static always_inline void write_dacr(u32 dacr) {
-  LOGD("write_dacr: %08x", dacr);
+  //LOGD("write_dacr: %08x", dacr);
   asm volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(dacr));
 }
 
@@ -286,12 +307,8 @@ static always_inline u32 swap_dacr(u32 new_dacr) {
   u32 old_dacr;
   asm volatile("mrc p15, 0, %0, c3, c0, 0" : "=r"(old_dacr));
   asm volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(new_dacr));
-  LOGD("swap_dacr: old=%08x new=%08x", old_dacr, new_dacr);
+  //LOGD("swap_dacr: old=%08x new=%08x", old_dacr, new_dacr);
   return old_dacr;
-}
-
-static always_inline void flush_tlb(u32 vaddr) {
-  asm volatile("mcr p15, 0, %0, c8, c7, 1" ::"r"(vaddr));
 }
 
 void align_cache_line(u32 vma, u32 len, u32& vma_align, u32& len_align) {
@@ -354,6 +371,11 @@ u32 always_inline l2_idx(u32 vaddr) {
   return (vaddr << 0xc) >> 0x18;
 }
 
+// Invalidate Unified TLB entry by MVA all ASID Inner Shareable
+void TLBIMVAAIS(u32 vaddr) {
+  asm volatile("mcr p15, 0, %0, c8, c3, 3" :: "r"(vaddr) : "memory");
+}
+
 void split_large_page(u32* pl2pte, u32 base_vaddr) {
   LOGD("base_vaddr=%08x", base_vaddr);
   u32* base_pte = pl2pte + l2_idx(base_vaddr);
@@ -361,19 +383,24 @@ void split_large_page(u32* pl2pte, u32 base_vaddr) {
   u32 old_attr = old_pte & L2_LARGE_ATTR_MASK;
   u32 base_paddr = old_pte & L2_LARGE_PHYS_MASK;
   u32 xn = (old_pte >> 15) & 0x1;
-  u32 tex = (old_pte >> 13) & 0x3;
-  u32 new_attr = (old_attr & L2_SMALL_ATTR_MASK & ~L2_TYPE_MASK) | (tex << 7) | xn | L2_TYPE_SMALL;
+  u32 tex = (old_pte >> 12) & 0x7;
+  u32 new_attr = (old_attr & L2_SMALL_ATTR_MASK & ~L2_TYPE_MASK) | (tex << 6) | xn | L2_TYPE_SMALL;
   for(u32 i = 0; i < L2_LARGE_SLOTS; i++) {
     u32 new_pte = (base_paddr + (i * PAGE_SIZE)) | new_attr;
     asm volatile("str %0, [%1, %2, lsl#2]" ::"r"(new_pte), "r"(base_pte), "r"(i) : "memory");
   }
+
+  ksceKernelDcacheCleanRange((void*)((u32)base_pte & ~0x1F), 0x20);
   asm volatile("dsb" ::: "memory");
   for(u32 i = 0; i < L2_LARGE_SLOTS; i++) {
-    flush_tlb(base_vaddr + (i * PAGE_SIZE));
+    u32 vaddr = base_vaddr + (i * PAGE_SIZE);
+    TLBIMVAAIS(vaddr);
   }
+  asm volatile("dsb" ::: "memory");
+  asm volatile("isb" ::: "memory");
 }
 
-int remap_page(SceAddressSpace& as, u32 vaddr, u32 new_paddr, u32* p_orig) {
+int remap_page(SceAddressSpace& as, u32 vaddr, u32 new_paddr) {
   LOGD("vaddr: %08x, new_paddr: %08x", vaddr, new_paddr);
 
   L2PageTable* l2table = va_to_l2pagetable(*as.ac, vaddr);
@@ -392,11 +419,14 @@ int remap_page(SceAddressSpace& as, u32 vaddr, u32 new_paddr, u32* p_orig) {
   LOGD("orig pte: %08x", orig);
 
   *ppte = new_paddr | (orig & L2_SMALL_ATTR_MASK);
+
+  ksceKernelDcacheCleanRange((void*)((u32)ppte & ~0x1F), 0x20);
+  TLBIMVAAIS(vaddr);
   asm volatile("dsb" ::: "memory");
-  flush_tlb(vaddr);
+  asm volatile("isb" ::: "memory");
+
   write_dacr(old_dacr);
   ksceKernelCpuResumeIntr(intr);
-  *p_orig = orig;
   return 0;
 }
 
@@ -404,9 +434,6 @@ void copy_from_to_user_text_domain(void* dst, void* src, size_t len) {
   u32 old_dacr = swap_dacr(0x15450FC3);
   // should usr ldrt and strt but thats not *that* important
   memcpy(dst, src, len); 
-  u32 vma_align, len_align;
-  align_cache_line((u32)dst, len, vma_align, len_align);
-  ksceKernelDcacheInvalidateRange((void*)vma_align, len_align);
   write_dacr(old_dacr);
 }
 
@@ -414,11 +441,10 @@ void copy_to_user_text_domain(void* dst, void* src, size_t len) {
   u32 old_dacr = swap_dacr(0x15450FC3);
   // should usr ldrt and strt but thats not *that* important
   memcpy(dst, src, len);
-  u32 vma_align, len_align;
-  align_cache_line((u32)dst, len, vma_align, len_align);
-  ksceKernelDcacheInvalidateRange((void*)vma_align, len_align);
   write_dacr(old_dacr);
 }
+
+extern "C" void ksceKernelVAtoPABySW(void*, u32*);
 
 int cow_write(CtxSwitched sw, SceAddressSpace& as, PageRemapVec& remaps, u32 addr, u8* data, u32 len) {
   u32 remaining = len;
@@ -440,39 +466,33 @@ int cow_write(CtxSwitched sw, SceAddressSpace& as, PageRemapVec& remaps, u32 add
         .attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_PID,
         .pid = as.pid,
       };
-      int ret = ksceKernelAllocMemBlock("stai_cow", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_RX, 0x1000, &opt);
-      LOGD("ksceKernelAllocMemBlock: ret=%d", ret);
-      if(ret < 0) {
-        return ret;
+      SceUID block_uid = ksceKernelAllocMemBlock("stai_cow", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_RX, 0x1000, &opt);
+      if(block_uid < 0) {
+        return block_uid;
       }
-      SceUID block_uid = ret;
       ksceKernelMapMemBlock(block_uid);
-
-      u32 new_vaddr;
-      ksceKernelGetMemBlockBase(block_uid, (void**)&new_vaddr);
-
-      LOGD("copying page to new block: page_base=%08x, new_vaddr=%08x", page_base, new_vaddr);
-      copy_from_to_user_text_domain((void*)new_vaddr, (void*)page_base, 0x1000);
-
-      if(remaps.emplace_at(find, page_base, new_vaddr, block_uid) == nullptr) {
+      if(remaps.emplace_at(find, page_base, block_uid) == nullptr) {
         ksceKernelFreeMemBlock(block_uid);
         return STAI_ERROR_OOM;
       }
-    }
-    auto& remap = remaps[find.index()];
 
-    void* dst = (void*)(remap.new_vaddr + page_offset);
-    LOGD("copying patch: vaddr=%08x, dst=%p, size=%d", page_base, dst, copy_size);
-    copy_to_user_text_domain(dst, current_data, copy_size);
-
-    if(remap.orig_pte == 0) {
+      void* new_vaddr;
       u32 new_paddr;
-      ksceKernelVAtoPA((void*)remap.new_vaddr, &new_paddr);
-      int ret = remap_page(as, page_base, new_paddr, &remap.orig_pte);
+      ksceKernelGetMemBlockBase(block_uid, &new_vaddr);
+      ksceKernelVAtoPA(new_vaddr, &new_paddr);
+
+      LOGD("copying page to new block: page_base=%08x, new_vaddr=%08x", page_base, new_vaddr);
+      copy_from_to_user_text_domain(new_vaddr, (void*)page_base, 0x1000);
+      ksceKernelDcacheCleanRange(new_vaddr, 0x1000); // flush the writes to memory
+
+      int ret = remap_page(as, page_base, new_paddr);
       if(ret < 0) {
         return ret;
       }
     }
+
+    LOGD("copying patch: vaddr=%08x, dst=%p, size=%d", page_base, current_vaddr, copy_size);
+    copy_to_user_text_domain((void*)current_vaddr, current_data, copy_size);
 
     current_data += copy_size;
     current_vaddr += copy_size;
@@ -487,14 +507,29 @@ bool is_shared_address(u32 addr) {
 
 int write_user_text(CtxSwitched sw, SceUID pid, PageRemapVec& remaps, u32 dst, u8* data, u32 len) {
   LOGD("dst=%08x, data=%p, len=%d", dst, data, len);
+  LOGD("patch_data:");
+  if(DEBUG) {
+    hex_dump(data, len);
+  }
+  
+  int ret;
   if(is_shared_address(dst)) {
     SceAddressSpace* as = get_process_address_space(pid);
     if(!as) {
       return STAI_ERROR_REMAP;
     }
-    return cow_write(sw, *as, remaps, dst, data, len);
+    ret = cow_write(sw, *as, remaps, dst, data, len);
+  } else {
+    copy_to_user_text_domain((void*)dst, data, len);
+    u32 dst_align, len_align;
+    align_cache_line(dst, len, dst_align, len_align);
+    ksceKernelDcacheInvalidateRange((void*)dst_align, len_align);
+    ret = 0;
   }
-  copy_to_user_text_domain((void*)dst, data, len);
+  if(ret < 0) {
+    return ret;
+  }
+
   return 0;
 }
 
@@ -554,27 +589,30 @@ void hook_module_start(SceModuleCB& module_cb) {
   }
 
   ProcessCtx&& ctx = switch_ctx(module_cb.pid);
-  ModuleStartReg first;
-  ModuleStartReg last;
+  ModuleStartReg* first = nullptr;
+  ModuleStartReg* last = nullptr;
 
   for(size_t i = 0; i < module_cb.lib_export_num; i++) {
     SceModuleExport* exp = &module_cb.exports[i];
+    LOGD("exp %s/%s(%08x)", module_cb.module_name, exp->library_name, exp->library_nid);
     auto slice = process->module_start_regs.slice(exp->library_nid);
     for(auto& reg : slice) {
-      if(first.dest_func == 0) {
-        first = reg;
+      if(first == nullptr) {
+        first = &reg;
       }
+      User<StaiRef> next = last ? last->hook_ref : nullptr;
+      LOGD("write ref next=%p func=%p old=%p", next, reg.dest_func, module_cb.module_start);
       reg.hook_ref.write(ctx.sw(), StaiRef{
-        .next = last.hook_ref,
+        .next = next,
         .func = reg.dest_func,
         .old = (u32)module_cb.module_start
       });
-      last = reg;
+      last = &reg;
     }
   }
 
-  if(first.dest_func) {
-    module_cb.module_start = (void*)first.dest_func;
+  if(first) {
+    module_cb.module_start = (void*)first->dest_func;
   }
 
   restore_ctx(std::move(ctx));
@@ -686,9 +724,9 @@ int patch_function(CtxSwitched sw, Process* process, Patch* patch, u32 dest_func
     hook_args* args = (hook_args*)userarg;
     ProcessCtx&& ctx = switch_ctx(args->pid);
     LOGD("target_addr: %08x", args->hook.function);
-#if LOG_LEVEL >= 2
-    hex_dump((void*)((u32)args->hook.function & ~1), 0x20);
-#endif
+    if(DEBUG) {
+      hex_dump((void*)((u32)args->hook.function & ~1), 0x20);
+    }
     args->ret = substitute_hook_functions(&args->hook, 1, args->record, SUBSTITUTE_RELAXED);
     restore_ctx(std::move(ctx));
     return 0;

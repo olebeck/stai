@@ -31,6 +31,8 @@ void __aeabi_atexit(void* obj, void (*dtor)(void*), void* dso_handle);
 #define LOG_LEVEL 0
 #endif
 
+#define DEBUG (LOG_LEVEL >= 2)
+
 #define LOG(TAG, fmt, ...) do { \
   ksceKernelPrintf("[stai:" TAG "] %s " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 } while(0)

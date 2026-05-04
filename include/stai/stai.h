@@ -44,8 +44,11 @@ typedef struct stai_module_info {
   struct stai_ref_t *cur = hook; \
   struct stai_ref_t *next = (stai_ref_t *)cur->next; \
   typedef __typeof__(fn) *_fn_ptr_type; \
-  (next == NULL)  ? \
-    ((_fn_ptr_type)(cur->old))(__VA_ARGS__) \
+  (next == NULL) ? \
+    (cur->old == NULL) ? \
+      0 \
+    : \
+      ((_fn_ptr_type)(cur->old))(__VA_ARGS__) \
   : \
     ((_fn_ptr_type)(next->func))(__VA_ARGS__) \
   ; \

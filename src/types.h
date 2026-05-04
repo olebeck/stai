@@ -11,31 +11,55 @@ typedef struct SceModuleExport {
   uint8_t auxattr;
   uint16_t version;
   uint16_t flags;
-  uint16_t entry_num_function;
-  uint16_t entry_num_variable;
+  uint16_t num_function;
+  uint16_t num_variable;
   uint16_t unka;
   uint32_t unkc;
   uint32_t library_nid;
   char* library_name;
-  uint32_t* table_nid;
-  void** table_entry;
+  uint32_t* nid_vec;
+  void** entry_vec;
 } SceModuleExport;
 
-typedef struct SceModuleImport {
-  uint8_t size;
-  uint8_t auxattr;
+static_assert(sizeof(SceModuleExport) == 0x20);
+
+typedef struct SceModuleImport1 {
+  uint16_t size;
   uint16_t version;
   uint16_t flags;
-  uint16_t entry_num_function;
-  uint16_t entry_num_variable;
+  uint16_t num_function;
+  uint16_t num_variable;
+  uint16_t num_tls;
+  uint32_t unk_0xa;
+  uint32_t library_nid;
+  char* library_name;
+  uint32_t unk_0x12;
+  uint32_t* func_nid_vec;
+  void** func_entry_vec;
+  uint32_t* var_nid_vec;
+  void** var_entry_vec;
+  uint32_t* tls_nid_vec;
+  void** tls_entry_vec;
+} SceModuleImport1;
+
+static_assert(sizeof(SceModuleImport1) == 0x34);
+
+typedef struct SceModuleImport2 {
+  uint16_t size;
+  uint16_t version;
+  uint16_t flags;
+  uint16_t num_function;
+  uint16_t num_variable;
   uint16_t unka;
   uint32_t library_nid;
   char* library_name;
-  uint32_t* table_func_nid;
-  void** table_func_entry;
-  uint32_t* table_vars_nid;
-  void** table_vars_entry;
-} SceModuleImport;
+  uint32_t* func_nid_vec;
+  void** func_entry_vec;
+  uint32_t* var_nid_vec;
+  void** var_entry_vec;
+} SceModuleImport2;
+
+static_assert(sizeof(SceModuleImport2) == 0x24);
 
 typedef struct SceModuleLibEnt {
   SceModuleLibEnt* next;
@@ -104,7 +128,7 @@ typedef struct SceModuleCB {
   void* WorkPool;
   SceModuleExport* exports;
   void* libraries;
-  SceModuleImport* imports;
+  void* imports;
   void* clients;
   char* path;
   SceModuleSegments segments;
