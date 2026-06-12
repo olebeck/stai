@@ -16,11 +16,11 @@ int get_is_363(SceUID modid) {
   }
   u8* cur = (u8*)SceKernelModulemgr->libent_top;
   while(cur < (u8*)SceKernelModulemgr->libent_btm) {
-    SceModuleExport* exp = (SceModuleExport*)cur;
-    if(exp->library_nid == 0xC445FA63) {
+    sce_module_exports* exp = (sce_module_exports*)cur;
+    if(exp->lib_nid == 0xC445FA63) {
       return 0;
     }
-    if(exp->library_nid == 0x92C9FFC2) {
+    if(exp->lib_nid == 0x92C9FFC2) {
       return 1;
     }
     cur += exp->size;

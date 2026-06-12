@@ -99,12 +99,7 @@ private:
   static_assert(ITEMSIZE >= 1 && ITEMSIZE <= SIZE_MAX);
   static_assert(POWEROF2(slab_pagesize));
 
-  static int sce_exe_alloc(SceUID pid, SceUID* exec_uid, SceUID* write_uid, uintptr_t* exec_ptr, void** write_ptr, size_t align, size_t size) {
-    *exec_uid = -1;
-    *write_uid = -1;
-    *exec_ptr = 0;
-    *write_ptr = NULL;
-    
+  static int sce_exe_alloc(SceUID pid, SceUID* out_exec_uid, SceUID* out_write_uid, uintptr_t* out_exec_ptr, void** out_write_ptr, size_t align, size_t size) {
     // allocate executable
     SceKernelAllocMemBlockKernelOpt opt;
     memset(&opt, 0, sizeof(opt));
@@ -115,42 +110,43 @@ private:
     int ret = ksceKernelAllocMemBlock("exec_mem", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_RX, size, &opt);
     if(ret < 0) {
       LOGE("ksceKernelAllocMemBlock(exec_mem): %08x", ret);
-      goto error;
+      return ret;
     }
-    *exec_uid = ret;
-    LOGD("exec_uid=%08x", *exec_uid);
+    SceUID exec_uid = ret;
+    LOGD("exec_uid=%08x", exec_uid);
 
-    ret = ksceKernelMapMemBlock(*exec_uid);
+    ret = ksceKernelMapMemBlock(exec_uid);
     if(ret < 0) {
       LOGE("ksceKernelMapMemBlock(exec_uid): %08x", ret);
-      goto error;
+      ksceKernelFreeMemBlock(exec_uid);
+      return ret;
     }
 
     // allocate kernel mirror
     memset(&opt, 0, sizeof(opt));
     opt.size = sizeof(SceKernelAllocMemBlockKernelOpt);
     opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_MIRROR_BLOCKID | SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_SHARE_PHYPAGE;
-    opt.mirror_blockid = (uint32_t)(*exec_uid);
+    opt.mirror_blockid = (uint32_t)(exec_uid);
     ret = ksceKernelAllocMemBlock("exec_mirror", SCE_KERNEL_MEMBLOCK_TYPE_KERNEL_TMP_RW, size, &opt);
     if(ret < 0) {
       LOGE("ksceKernelAllocMemBlock(exec_mirror): %08x", ret);
-      goto error;
+      ksceKernelFreeMemBlock(exec_uid);
+      return ret;
     }
-    *write_uid = ret;
-    LOGD("write_uid=%08x", *write_uid);
+    SceUID write_uid = ret;
+    LOGD("write_uid=%08x", write_uid);
 
-    ksceKernelGetMemBlockBase(*exec_uid, (void**)exec_ptr);
-    ksceKernelGetMemBlockBase(*write_uid, write_ptr);
-    LOGD("exec_ptr=%p write_ptr=%p", (void*)*exec_ptr, *write_ptr);
+    void* exec_ptr;
+    void* write_ptr;
+    ksceKernelGetMemBlockBase(exec_uid, &exec_ptr);
+    ksceKernelGetMemBlockBase(write_uid, &write_ptr);
+    LOGD("exec_ptr=%p write_ptr=%p", exec_ptr, write_ptr);
+
+    *out_exec_uid = exec_uid;
+    *out_write_uid = write_uid;
+    *out_exec_ptr = (uintptr_t)exec_ptr;
+    *out_write_ptr = write_ptr;
     return 0;
-  error:
-    if(*exec_uid > 0) {
-      ksceKernelFreeMemBlock(*exec_uid);
-    }
-    if(*write_uid > 0) {
-      ksceKernelFreeMemBlock(*write_uid);
-    }
-    return ret;
   }
 
   static int sce_exe_free(SceUID write_uid, SceUID exec_uid) {
@@ -253,12 +249,12 @@ public:
       /* no empty or partial slabs available, create a new one */
       SceUID write_uid, exe_uid;
       uintptr_t exe_data;
-      int ret = sce_exe_alloc(pid, &exe_uid, &write_uid, &exe_data, (void **)&this->partial, this->slabsize, this->pages_per_alloc);
+      void* write_data;
+      int ret = sce_exe_alloc(pid, &exe_uid, &write_uid, &exe_data, &write_data, this->slabsize, this->pages_per_alloc);
       if (ret < 0) {
-        *exe_addr = 0;
-        this->partial = NULL;
         return NULL;
       }
+      this->partial = (struct slab_header*)write_data;
       this->partial->write_uid = write_uid;
       this->partial->exe_uid = exe_uid;
       this->partial->exe_data = exe_data + offsetof(struct slab_header, data);

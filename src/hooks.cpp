@@ -195,48 +195,65 @@ void hex_dump(const void* data, size_t size) {
   }
 }
 
+template<typename T> T copy_from_user(T* ptr) {
+  T value;
+  ksceKernelCopyFromUser(&value, ptr, sizeof(T));
+  return std::move(value);
+}
+
+static always_inline void write_dacr(u32 dacr) {
+  //LOGD("write_dacr: %08x", dacr);
+  asm volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(dacr));
+}
+
+static always_inline u32 swap_dacr(u32 new_dacr) {
+  u32 old_dacr;
+  asm volatile("mrc p15, 0, %0, c3, c0, 0" : "=r"(old_dacr));
+  asm volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(new_dacr));
+  //LOGD("swap_dacr: old=%08x new=%08x", old_dacr, new_dacr);
+  return old_dacr;
+}
+
 int module_cb_get_export_func(CtxSwitched, SceModuleCB& module_cb, u32 library_nid, u32 func_nid, u32* p_func) {
-  u8* cur = (u8*)module_cb.libent_top;
-  while(cur) {
-    SceModuleExport exp;
-    ksceKernelCopyFromUser(&exp, cur, sizeof(exp));
-    if(library_nid == 0xffffffff || exp.library_nid == library_nid) {
-      for(u32 i = 0; i < exp.num_function; i++) {
-        if(exp.nid_vec[i] == func_nid) {
-          *p_func = (u32)exp.entry_vec[i];
+  u32 old_dacr = swap_dacr(0x55555555); // TODO: why?
+  u32 cur = module_cb.libent_top;
+  while(cur < module_cb.libent_btm) {
+    sce_module_exports_t exp = copy_from_user((sce_module_exports_t*)cur);
+    if(library_nid == 0xffffffff || exp.lib_nid == library_nid) {
+      for(u32 i = 0; i < exp.num_functions; i++) {
+        if(exp.nid_table[i] == func_nid) {
+          *p_func = (u32)exp.entry_table[i];
+          write_dacr(old_dacr);
           return 0;
         }
       }
     }
     cur += exp.size;
   }
+  write_dacr(old_dacr);
   return 0x8002d081;
 }
 
 int module_cb_get_import_func(CtxSwitched, SceModuleCB& module_cb, u32 library_nid, u32 func_nid, u32* p_func) {
-  u8* cur = (u8*)module_cb.libstub_top;
-  while(cur < (u8*)module_cb.libstub_btm) {
-    size_t size;
-    ksceKernelCopyFromUser(&size, cur, 4);
-    
+  u32 cur = module_cb.libstub_top;
+  while(cur < module_cb.libstub_btm) {
+    uint16_t size = copy_from_user((uint16_t*)cur);
     uint32_t import_library_nid;
     uint32_t num_function;
-    uint32_t* func_nid_vec;
-    void** func_entry_vec;
-    if(size == sizeof(SceModuleImport1)) {
-      SceModuleImport1 import;
-      ksceKernelCopyFromUser(&import, cur, sizeof(import));
-      import_library_nid = import.library_nid;
-      num_function = import.num_function;
-      func_nid_vec = import.func_nid_vec;
-      func_entry_vec = import.func_entry_vec;
-    } else if(size == sizeof(SceModuleImport2)) {
-      SceModuleImport2 import;
-      ksceKernelCopyFromUser(&import, cur, sizeof(import));
-      import_library_nid = import.library_nid;
-      num_function = import.num_function;
-      func_nid_vec = import.func_nid_vec;
-      func_entry_vec = import.func_entry_vec;
+    uint32_t* func_nid_table;
+    void** func_entry_table;
+    if(size == sizeof(sce_module_imports_1)) {
+      sce_module_imports_1 import = copy_from_user((sce_module_imports_1*)cur);
+      import_library_nid = import.lib_nid;
+      num_function = import.num_functions;
+      func_nid_table = import.func_nid_table;
+      func_entry_table = import.func_entry_table;
+    } else if(size == sizeof(sce_module_imports_2)) {
+      sce_module_imports_2 import = copy_from_user((sce_module_imports_2*)cur);
+      import_library_nid = import.lib_nid;
+      num_function = import.num_functions;
+      func_nid_table = import.func_nid_table;
+      func_entry_table = import.func_entry_table;
     } else {
       LOGE("skipping unknown import format size=%d", size);
       cur += size;
@@ -244,8 +261,8 @@ int module_cb_get_import_func(CtxSwitched, SceModuleCB& module_cb, u32 library_n
     }
     if(library_nid == 0xffffffff || import_library_nid == library_nid) {
       for(u32 i = 0; i < num_function; i++) {
-        if(func_nid_vec[i] == func_nid) {
-          *p_func = (u32)func_entry_vec[i];
+        if(func_nid_table[i] == func_nid) {
+          *p_func = (u32)func_entry_table[i];
           return 0;
         }
       }
@@ -285,7 +302,7 @@ int librarydb_get_module_by_library_nid(SceUID pid, u32 library_nid, SceModuleCB
   SceModuleLibEnt* next = libdb->lib_ents;
   while(next) {
     SceModuleLibEnt* ent = next;
-    if(ent->exports->library_nid == library_nid) {
+    if(ent->exports->lib_nid == library_nid) {
       ksceKernelSpinlockLowUnlockCpuResumeIntr(&libdb->mutex, intr);
       *p_module_cb = ent->module_cb;
       return 0;
@@ -294,19 +311,6 @@ int librarydb_get_module_by_library_nid(SceUID pid, u32 library_nid, SceModuleCB
   }
   ksceKernelSpinlockLowUnlockCpuResumeIntr(&libdb->mutex, intr);
   return 0x8002d081;
-}
-
-static always_inline void write_dacr(u32 dacr) {
-  //LOGD("write_dacr: %08x", dacr);
-  asm volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(dacr));
-}
-
-static always_inline u32 swap_dacr(u32 new_dacr) {
-  u32 old_dacr;
-  asm volatile("mrc p15, 0, %0, c3, c0, 0" : "=r"(old_dacr));
-  asm volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(new_dacr));
-  //LOGD("swap_dacr: old=%08x new=%08x", old_dacr, new_dacr);
-  return old_dacr;
 }
 
 void align_cache_line(u32 vma, u32 len, u32& vma_align, u32& len_align) {
@@ -592,9 +596,8 @@ void hook_module_start(SceModuleCB& module_cb) {
   ModuleStartReg* last = nullptr;
 
   for(size_t i = 0; i < module_cb.lib_export_num; i++) {
-    SceModuleExport* exp = &module_cb.exports[i];
-    LOGD("exp %s/%s(%08x)", module_cb.module_name, exp->library_name, exp->library_nid);
-    auto slice = process->module_start_regs.slice(exp->library_nid);
+    sce_module_exports* exp = &module_cb.exports[i];
+    auto slice = process->module_start_regs.slice(exp->lib_nid);
     for(auto& reg : slice) {
       if(first == nullptr) {
         first = &reg;
@@ -687,9 +690,11 @@ static int startModuleCommon_hook(SceUID pid, SceUID modid, size_t args, void* a
 void Process::cleanup_module(SceModuleCB& module_cb) {
   const u32 text_start = (u32)module_cb.segments.segments[0].base_addr;
   const u32 text_end = text_start + module_cb.segments.segments[0].memsz;
-  LOGD("module %s text range: %08x-%08x", module_cb.module_name, text_start, text_end);
 
   auto patch_slice = this->patches.slice(text_start, text_end);
+  if(patch_slice.len > 0) {
+    LOGD("module %s text range: %08x-%08x patches=%d", module_cb.module_name, text_start, text_end, patch_slice.len);
+  }
   for(size_t i = 0; i < patch_slice.len; i++) {
     Patch& patch = patch_slice[i];
     if(patch.record) {
@@ -1042,8 +1047,10 @@ extern "C" EXPORTED int _staiFindModuleByLibraryNid(u32 library_nid, stai_module
   int ret;
   SceModuleCB* module_cb;
   if(library_nid == STAI_MAIN_MODULE) {
-    SceUID module_uid = ksceKernelGetModuleIdByPid(pid);
-    ret = ksceKernelGetModuleCB(module_uid, (void**)&module_cb);
+    ret = ksceKernelGetModuleIdByPid(pid);
+    if(ret > 0) {
+      ret = ksceKernelGetModuleCB(ret, (void**)&module_cb);
+    }
   } else {
     ret = librarydb_get_module_by_library_nid(pid, library_nid, &module_cb);
   }

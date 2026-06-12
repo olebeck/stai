@@ -6,65 +6,69 @@
 
 typedef struct SceModuleCB SceModuleCB;
 
-typedef struct SceModuleExport {
-  uint8_t size;
-  uint8_t auxattr;
+typedef struct sce_module_exports {
+  uint16_t size;           // size of this structure; 0x20 for Vita 1.x
+  uint8_t  lib_version[2]; //
+  uint16_t attribute;      // ?
+  uint16_t num_functions;  // number of exported functions
+  uint16_t num_vars;       // number of exported variables
+  uint16_t unk;
+  uint32_t num_tls_vars;   // number of exported TLS variables?  <-- pretty sure wrong // yifanlu
+  uint32_t lib_nid;        // NID of this specific export list; one PRX can export several names
+  char     *lib_name;      // name of the export module
+  uint32_t *nid_table;     // array of 32-bit NIDs for the exports, first functions then vars
+  void     **entry_table;  // array of pointers to exported functions and then variables
+} sce_module_exports_t;
+
+static_assert(sizeof(sce_module_exports_t) == 0x20);
+
+struct sce_module_imports_1 {
+  uint16_t size;               // size of this structure; 0x34
+  uint16_t version;            //
+  uint16_t flags;              //
+  uint16_t num_functions;      // number of imported functions
+  uint16_t num_vars;           // number of imported variables
+  uint16_t num_tls_vars;       // number of imported TLS variables
+  uint32_t reserved1;          // ?
+  uint32_t lib_nid;            // NID of the module to link to
+  char     *lib_name;          // name of module
+  uint32_t reserved2;          // ?
+  uint32_t *func_nid_table;    // array of function NIDs (numFuncs)
+  void     **func_entry_table; // parallel array of pointers to stubs; they're patched by the loader to jump to the final code
+  uint32_t *var_nid_table;     // NIDs of the imported variables (numVars)
+  void     **var_entry_table;  // array of pointers to "ref tables" for each variable
+  uint32_t *tls_nid_table;     // NIDs of the imported TLS variables (numTlsVars)
+  void     **tls_entry_table;  // array of pointers to ???
+};
+
+static_assert(sizeof(sce_module_imports_1) == 0x34);
+
+struct sce_module_imports_2 {
+  uint16_t size; // 0x24
   uint16_t version;
   uint16_t flags;
-  uint16_t num_function;
-  uint16_t num_variable;
-  uint16_t unka;
-  uint32_t unkc;
-  uint32_t library_nid;
-  char* library_name;
-  uint32_t* nid_vec;
-  void** entry_vec;
-} SceModuleExport;
+  uint16_t num_functions;
+  uint32_t reserved1;
+  uint32_t lib_nid;
+  char     *lib_name;
+  uint32_t *func_nid_table;
+  void     **func_entry_table;
+  uint32_t unk1;
+  uint32_t unk2;
+};
 
-static_assert(sizeof(SceModuleExport) == 0x20);
+static_assert(sizeof(sce_module_imports_2) == 0x24);
 
-typedef struct SceModuleImport1 {
+typedef union sce_module_imports {
   uint16_t size;
-  uint16_t version;
-  uint16_t flags;
-  uint16_t num_function;
-  uint16_t num_variable;
-  uint16_t num_tls;
-  uint32_t unk_0xa;
-  uint32_t library_nid;
-  char* library_name;
-  uint32_t unk_0x12;
-  uint32_t* func_nid_vec;
-  void** func_entry_vec;
-  uint32_t* var_nid_vec;
-  void** var_entry_vec;
-  uint32_t* tls_nid_vec;
-  void** tls_entry_vec;
-} SceModuleImport1;
-
-static_assert(sizeof(SceModuleImport1) == 0x34);
-
-typedef struct SceModuleImport2 {
-  uint16_t size;
-  uint16_t version;
-  uint16_t flags;
-  uint16_t num_function;
-  uint16_t num_variable;
-  uint16_t unka;
-  uint32_t library_nid;
-  char* library_name;
-  uint32_t* func_nid_vec;
-  void** func_entry_vec;
-  uint32_t* var_nid_vec;
-  void** var_entry_vec;
-} SceModuleImport2;
-
-static_assert(sizeof(SceModuleImport2) == 0x24);
+  struct sce_module_imports_1 type1;
+  struct sce_module_imports_2 type2;
+} sce_module_imports_t;
 
 typedef struct SceModuleLibEnt {
   SceModuleLibEnt* next;
   SceModuleLibEnt* prev;
-  SceModuleExport* exports;
+  sce_module_exports_t* exports;
   uint16_t syscall_info;
   uint16_t flags;
   uint32_t ClientCounter;
@@ -111,10 +115,10 @@ typedef struct SceModuleCB {
   uint8_t minor;
   uint8_t major;
   char* module_name;
-  void* libent_top;
-  void* libent_btm;
-  void* libstub_top;
-  void* libstub_btm;
+  uint32_t libent_top;
+  uint32_t libent_btm;
+  uint32_t libstub_top;
+  uint32_t libstub_btm;
   uint32_t fingerprint;
   void* tlsInit;
   size_t tlsInitSize;
@@ -126,7 +130,7 @@ typedef struct SceModuleCB {
   uint16_t lib_export_num;
   uint16_t lib_import_num;
   void* WorkPool;
-  SceModuleExport* exports;
+  sce_module_exports_t* exports;
   void* libraries;
   void* imports;
   void* clients;
