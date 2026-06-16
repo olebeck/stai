@@ -89,7 +89,7 @@ typedef struct SceSegmentInfoInternal {
 } SceSegmentInfoInternal;
 
 typedef struct SceModuleSegments {
-  int segmnets_num;
+  int segments_num;
   SceSegmentInfoInternal segments[3];
   int meta2;
   int meta1;

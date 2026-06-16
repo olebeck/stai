@@ -172,7 +172,9 @@ struct HookLocation {
   SceUID module_uid;
   Type type;
   union {
-    u32 offset;
+    struct {
+      u32 offset;
+    } offset;
     struct {
       u32 library_nid;
       u32 func_nid;
@@ -235,6 +237,7 @@ int module_cb_get_export_func(CtxSwitched, SceModuleCB& module_cb, u32 library_n
 }
 
 int module_cb_get_import_func(CtxSwitched, SceModuleCB& module_cb, u32 library_nid, u32 func_nid, u32* p_func) {
+  u32 old_dacr = swap_dacr(0x55555555); // TODO: why?
   u32 cur = module_cb.libstub_top;
   while(cur < module_cb.libstub_btm) {
     uint16_t size = copy_from_user((uint16_t*)cur);
@@ -263,12 +266,14 @@ int module_cb_get_import_func(CtxSwitched, SceModuleCB& module_cb, u32 library_n
       for(u32 i = 0; i < num_function; i++) {
         if(func_nid_table[i] == func_nid) {
           *p_func = (u32)func_entry_table[i];
+          write_dacr(old_dacr);
           return 0;
         }
       }
     }
     cur += size;
   }
+  write_dacr(old_dacr);
   return 0x8002d081;
 }
 
@@ -280,7 +285,12 @@ int HookLocation::resolve(CtxSwitched sw, u32* ptr) {
   }
   switch(this->type) {
   case Type::Offset: {
-    *ptr = (u32)module_cb->segments.segments[0].base_addr + this->offset;
+    SceSegmentInfoInternal* seg = &module_cb->segments.segments[0];
+    if(this->offset.offset > seg->memsz) {
+      return STAI_ERROR_NOT_FOUND;
+    }
+    LOGD("seg->base_addr: %p, seg->memsz: %d", seg->base_addr, seg->memsz);
+    *ptr = (u32)seg->base_addr + this->offset.offset;
     return 0;
   }
   case Type::Import: {
