@@ -1,4 +1,5 @@
 #include <psp2kern/kernel/modulemgr.h>
+#include <taihen.h>
 
 #include "std.h"
 #include "hooks.h"
@@ -6,26 +7,15 @@
 #include "stubs.h"
 #include "version.h"
 
+extern "C" int module_get_export_func(SceUID pid, const char *modname, uint32_t libnid, uint32_t funcnid, void** func);
 
 int get_is_363(SceUID modid) {
-  SceModuleCB* SceKernelModulemgr;
-  int ret = ksceKernelGetModuleCB(modid, (void**)&SceKernelModulemgr);
-  LOGD("ksceKernelGetModuleCB(SceKernelModulemgr): %08x", ret);
+  void* _ksceKernelGetModuleCB;
+  int ret = module_get_export_func(KERNEL_PID, "SceKernelModulemgr", 0xC445FA63, 0xFE303863, &_ksceKernelGetModuleCB);
   if(ret < 0) {
-    return ret;
+    return 1;
   }
-  u8* cur = (u8*)SceKernelModulemgr->libent_top;
-  while(cur < (u8*)SceKernelModulemgr->libent_btm) {
-    sce_module_exports* exp = (sce_module_exports*)cur;
-    if(exp->lib_nid == 0xC445FA63) {
-      return 0;
-    }
-    if(exp->lib_nid == 0x92C9FFC2) {
-      return 1;
-    }
-    cur += exp->size;
-  }
-  return -1;
+  return 0;
 }
 
 extern "C" EXPORTED int module_start(SceSize argc, const void* argv) {

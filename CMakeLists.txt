@@ -90,6 +90,7 @@ target_link_libraries(stai PRIVATE
   SceModulemgrForDriver_stub
   SceProcessmgrForDriver_stub
   taihenForKernel_stub
+  taihenModuleUtils_stub
   gcc
 
   substitute
