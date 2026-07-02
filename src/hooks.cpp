@@ -535,7 +535,7 @@ int write_user_text(CtxSwitched sw, SceUID pid, PageRemapVec& remaps, u32 dst, u
     copy_to_user_text_domain((void*)dst, data, len);
     u32 dst_align, len_align;
     align_cache_line(dst, len, dst_align, len_align);
-    ksceKernelDcacheInvalidateRange((void*)dst_align, len_align);
+    ksceKernelDcacheCleanInvalidateRange((void*)dst_align, len_align);
     ret = 0;
   }
   if(ret < 0) {
@@ -651,7 +651,6 @@ static SceProcEventHandler proc_event_handler = {
 };
 
 void after_module_unload(SceModuleCB& module_cb) {
-  LOG_FUNC();
   ScopeLock lock(hook_lock);
   Process* process = Processes::get(module_cb.pid);
   if(process) {
