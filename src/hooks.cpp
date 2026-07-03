@@ -283,26 +283,39 @@ int HookLocation::resolve(CtxSwitched sw, u32* ptr) {
   if(ret < 0) {
     return ret;
   }
+  SceSegmentInfoInternal* seg = &module_cb->segments.segments[0];
   switch(this->type) {
-  case Type::Offset: {
-    SceSegmentInfoInternal* seg = &module_cb->segments.segments[0];
-    if(this->offset.offset > seg->memsz) {
-      return STAI_ERROR_NOT_FOUND;
+    case Type::Offset: {
+      *ptr = (u32)seg->base_addr + this->offset.offset;
+      ret = 0;
+      break;
     }
-    LOGD("seg->base_addr: %p, seg->memsz: %d", seg->base_addr, seg->memsz);
-    *ptr = (u32)seg->base_addr + this->offset.offset;
-    return 0;
+    case Type::Import: {
+      ret = module_cb_get_import_func(sw, *module_cb, this->nid.library_nid, this->nid.func_nid, ptr);
+      if(ret < 0) {
+        return ret;
+      }
+      break;
+    }
+    case Type::Export: {
+      ret = module_cb_get_export_func(sw, *module_cb, this->nid.library_nid, this->nid.func_nid, ptr);
+      if(ret < 0) {
+        return ret;
+      }
+      break;
+    }
+    default: {
+      return STAI_ERROR_UNEXPECTED;
+    }
   }
-  case Type::Import: {
-    return module_cb_get_import_func(sw, *module_cb, this->nid.library_nid, this->nid.func_nid, ptr);
+
+  u32 start = (u32)seg->base_addr;
+  u32 end = start + seg->memsz;
+  if(*ptr < start || *ptr > end) {
+    LOGD("start=%08x end=%08x size=0x%x ptr=%08x out of bounds", start, end, seg->memsz, *ptr);
+    return STAI_ERROR_NOT_FOUND;
   }
-  case Type::Export: {
-    return module_cb_get_export_func(sw, *module_cb, this->nid.library_nid, this->nid.func_nid, ptr);
-  }
-  default: {
-    return STAI_ERROR_UNEXPECTED;
-  }
-  }
+  return 0;
 }
 
 int librarydb_get_module_by_library_nid(SceUID pid, u32 library_nid, SceModuleCB** p_module_cb) {
@@ -455,8 +468,6 @@ void copy_to_user_text_domain(void* dst, void* src, size_t len) {
   memcpy(dst, src, len);
   write_dacr(old_dacr);
 }
-
-extern "C" void ksceKernelVAtoPABySW(void*, u32*);
 
 int cow_write(CtxSwitched sw, SceAddressSpace& as, PageRemapVec& remaps, u32 addr, u8* data, u32 len) {
   u32 remaining = len;
