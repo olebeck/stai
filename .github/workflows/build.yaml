@@ -39,7 +39,7 @@ jobs:
 
       - name: Build
         run: |
-          cmake -Bbuild -S . -DCMAKE_BUILD_TYPE=Release -DLOG_LEVEL=1 -DSTAI_VERSION=${{ github.event.inputs.tag_name }}
+          cmake -Bbuild -S . -DCMAKE_BUILD_TYPE=Release -DSTAI_VERSION=${{ github.event.inputs.tag_name }}
           cmake --build build --config Release --target all
 
       - name: Determine release tag

@@ -23,33 +23,27 @@ void abort();
 int printf(const char* fmt, ...);
 void __aeabi_atexit(void* obj, void (*dtor)(void*), void* dso_handle);
 
-#ifndef LOG_LEVEL
-#define LOG_LEVEL 0
-#endif
-#if LOG_LEVEL == OFF
-#undef LOG_LEVEL
-#define LOG_LEVEL 0
-#endif
+void hex_dump(const void* data, size_t size);
 
-#define DEBUG (LOG_LEVEL >= 2)
+#ifndef NDEBUG
+#define DEBUG
+#endif
 
 #define LOG(TAG, fmt, ...) do { \
   ksceKernelPrintf("[stai:" TAG "] %s " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 } while(0)
 
-#define LOGI(fmt, ...) do { \
-  if(LOG_LEVEL >= 1) { LOG("I", fmt, ##__VA_ARGS__); } \
-} while(0)
+#define LOGE(fmt, ...) LOG("E", fmt, ##__VA_ARGS__)
 
-#define LOGD(fmt, ...) do { \
-  if(LOG_LEVEL >= 2) { LOG("D", fmt, ##__VA_ARGS__); } \
-} while(0)
+#define LOGI(fmt, ...) LOG("I", fmt, ##__VA_ARGS__)
 
-#define LOGE(fmt, ...) do { \
-  LOG("E", fmt, ##__VA_ARGS__); \
-} while(0)
+#ifdef DEBUG
+  #define LOGD(fmt, ...) LOG("D", fmt, ##__VA_ARGS__)
+#else
+#define LOGD(fmt, ...) {}
+#endif
 
-#define LOG_PTR(ptr) LOGD(#ptr ": %p", ptr);
+#define LOG_PTR(ptr) LOGD(#ptr ": %p", ptr)
 
 #define LOG_FUNC() LOGD("")
 

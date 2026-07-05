@@ -16,10 +16,12 @@ int heap_init() {
 }
 
 void* malloc(size_t size) {
+  void* ptr = ksceKernelAllocHeapMemory(heap_uid, size);
+#ifdef DEBUG
   uint32_t lr;
   asm volatile ("mov %0, lr" : "=r" (lr));
-  void* ptr = ksceKernelAllocHeapMemory(heap_uid, size);
   LOGD("size=%x ptr=%p lr=%p", size, ptr, lr);
+#endif
   return ptr;
 }
 
@@ -54,3 +56,16 @@ void __aeabi_atexit(void* obj, void (*dtor)(void*), void* dso_handle) {
 }
 
 void *__dso_handle = NULL;
+
+void hex_dump(const void* data, size_t size) {
+  const u8* bytes = (const u8*)data;
+  for(size_t i = 0; i < size; i++) {
+    if(i % 16 == 0) {
+      ksceKernelPrintf("%08x: ", (u32)(bytes + i));
+    }
+    ksceKernelPrintf("%02x ", bytes[i]);
+    if(i % 16 == 15 || i == size - 1) {
+      ksceKernelPrintf("\n");
+    }
+  }
+}

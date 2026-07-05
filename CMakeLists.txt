@@ -14,16 +14,9 @@ project(stai LANGUAGES C CXX ASM)
 
 include("${VITASDK}/share/vita.cmake" REQUIRED)
 
-option(LOG_LEVEL "Log Level, 0=none, 1=info, 2=debug" "0")
-
-set(COMPILER_FLAGS "-g -Wall -Os -ffunction-sections -fdata-sections -fvisibility=hidden -fno-builtin-printf")
+set(COMPILER_FLAGS "-g -Wall -Os -ffunction-sections -fdata-sections -fvisibility=hidden -fno-builtin-printf -nostdlib -nodefaultlibs")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${COMPILER_FLAGS} -std=gnu11")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMPILER_FLAGS} -std=gnu++17 -fno-rtti -fno-exceptions")
-
-add_compile_definitions(LOG_LEVEL=${LOG_LEVEL})
-if(LOG_LEVEL GREATER 1)
-  add_compile_definitions(TRANSFORM_DIS_VERBOSE=1)
-endif()
 
 execute_process(
   COMMAND git rev-parse HEAD
@@ -70,8 +63,10 @@ target_compile_options(substitute PRIVATE
 set_property(TARGET substitute PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
 
 add_executable(stai
-  src/stai.cpp
+  src/cow.cpp
   src/hooks.cpp
+  src/module.cpp
+  src/stai.cpp
   src/std.c
   src/stubs.s
 )

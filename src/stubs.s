@@ -52,6 +52,8 @@ vitastub_ver SceModulemgrForKernel, ksceKernelGetModuleIdByPid, 0x18, 0xC445FA63
 
 // ksceKernelPrintf but renamed for substitute
 vitastub SceDebugForDriver, printf, 0x10, 0x88758561, 0x391b74b7
+//vitastub SceSysclibForDriver, memcpy, 0x10, 0x7EE45391, 0x40C88316
+//vitastub SceSysmemForKernel, ksceKernelGetMemBlockType, 0x10, 0x63A519E5, 0x289BE3EC
 
 .section .text,"ax"
 .global init_363_stubs

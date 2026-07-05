@@ -31,6 +31,7 @@ target_link_libraries(test_plugin PRIVATE
   SceKernelModulemgr_stub
   SceLibKernel_stub
   SceSysmodule_stub
+  SceLibc_stub
 
   stai_stub
 )

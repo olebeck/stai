@@ -1,125 +1,42 @@
 #pragma once
 
-#include "std.h"
 #include <psp2kern/kernel/sysmem.h>
+#include <psp2kern/kernel/threadmgr.h>
+#include <psp2kern/kernel/cpu.h>
 
+#include "std.h"
+
+#define _NEW
 #include <bits/move.h>
+#include <tuple>
 
-#define always_inline __attribute__((always_inline)) inline
+#define inline_always __attribute__((always_inline)) inline
 
-class CtxSwitched {};
 
-void cache_flush_kernel(u32 ptr, size_t len);
-void cache_flush_user(CtxSwitched sw, u32 vma, size_t len);
-
-template<typename T>
-class User {
-private:
-  T* ptr;
-public:
-  always_inline User() : ptr(nullptr) {}
-  always_inline User(T* ptr) : ptr(ptr) {}
-
-  always_inline bool operator==(User<T>& other) {
-    return this->ptr == other.ptr;
-  }
-
-  always_inline bool operator==(void* other) {
-    return this->ptr == other;
-  }
-
-  always_inline T read(CtxSwitched) {
-    T value; 
-    ksceKernelCopyFromUser(&value, this->ptr, sizeof(T));
-    return value;
-  }
-
-  always_inline void write(CtxSwitched sw, T&& value) {
-    this->write(sw, value);
-  }
-
-  always_inline void write(CtxSwitched sw, T& value) {
-    ksceKernelCopyToUser(this->ptr, &value, sizeof(T));
-  }
-};
-
-template<typename T>
-T read_user(CtxSwitched sw, const T* user) {
-  T value;
-  ksceKernelCopyFromUser(&value, user, sizeof(T));
-  return value;
-}
-
-class SyscallState {
-  u32 state;
-public:
-  always_inline SyscallState(u32 state) : state(state) {}
-  always_inline ~SyscallState() {
-    asm volatile ("mcr p15, 0, %0, c13, c0, 3" :: "r" (state) : "memory");
-  }
-  SyscallState(const SyscallState&) = delete;
-  SyscallState& operator=(const SyscallState&) = delete;
-
-  always_inline CtxSwitched sw() {
-    return CtxSwitched{};
-  }
-};
-
-always_inline SyscallState enter_syscall() {
-  u32 state;
-  asm volatile ("mrc p15, 0, %0, c13, c0, 3" : "=r" (state));
-  asm volatile ("mcr p15, 0, %0, c13, c0, 3" :: "r" (state << 16) : "memory");
-  return SyscallState(state);
-}
-
-struct ProcessCtx {
-  SceKernelProcessContext prev_ctx;
-  SceKernelIntrStatus intr;
-
-  always_inline ~ProcessCtx() {
-    ksceKernelProcessSwitchContext(&prev_ctx, nullptr);
-    ksceKernelCpuResumeIntr(intr);
-  }
-
-  CtxSwitched sw() {
-    return CtxSwitched{};
-  }
-};
-
-always_inline ProcessCtx switch_ctx(SceUID pid) {
-  SceKernelProcessContext prev_ctx;
-  SceKernelProcessContext* proc_ctx;
-  ksceKernelProcessGetContext(pid, &proc_ctx);
-  SceKernelIntrStatus intr = ksceKernelCpuSuspendIntr();
-  ksceKernelProcessSwitchContext(proc_ctx, &prev_ctx);
-  return ProcessCtx{prev_ctx, intr};
-}
-
-always_inline void restore_ctx(ProcessCtx&& ctx) { /* calls destructor */ }
-
-class ScopeLock {
+class [[nodiscard]] ScopeLock {
   SceUID mutex;
 public:
-  always_inline ScopeLock(SceUID mutex) : mutex(mutex) {
+  inline_always ScopeLock(SceUID mutex) : mutex(mutex) {
     ksceKernelLockMutex(mutex, 1, NULL);
   }
-  always_inline ~ScopeLock() {
+  inline_always ~ScopeLock() {
     ksceKernelUnlockMutex(mutex, 1);
   }
 };
 
-always_inline void* operator new(size_t size) {
+inline_always void* operator new(size_t size) {
   return malloc(size);
 };
-always_inline void operator delete(void* ptr) {
+
+inline_always void operator delete(void* ptr) {
   free(ptr);
 };
 
-always_inline void* operator new(size_t size, void* ptr) {
+inline_always void* operator new(size_t size, void* ptr) {
   return ptr;
 }
 
-always_inline void operator delete(void* ptr, void*) {
+inline_always void operator delete(void* ptr, void*) {
   operator delete(ptr);
 }
 
@@ -410,7 +327,7 @@ public:
     return false;
   }
 
-  void erase_slice(Slice&& slice) {
+  void erase_slice(Slice slice) {
     if(slice.ptr == nullptr) return;
     size_t start = slice.ptr - this->data();
     size_t end = start + slice.len;
