@@ -611,11 +611,13 @@ TAI_HOOK(int, ModulemgrStopModule, SceUID pid, SceUID modid, int argc, void* arg
   return TAI_HOOK_CONTINUE(ModulemgrStopModule, pid, modid, argc, argv, param_5, option, status);
 }
 
+/*
 TAI_HOOK(int, unlink_imports, void* stublinker) {
   int ret = TAI_HOOK_CONTINUE(unlink_imports, stublinker);
   LOGD("unlink_imports: %08x", ret);
   return ret;
 }
+*/
 
 static int on_process_exit(SceUID pid, SceProcEventInvokeParam1 *a2, int a3) {
   LOG_FUNC();
@@ -670,7 +672,7 @@ int hooks_init() {
 
   TAI_HOOK_OFFSET(SceKernelModulemgr_modid, startModuleCommon, 0x286C);
   TAI_HOOK_OFFSET(SceKernelModulemgr_modid, ModulemgrStopModule, 0x2b40);
-  TAI_HOOK_OFFSET(SceKernelModulemgr_modid, unlink_imports, 0x5620)
+  //TAI_HOOK_OFFSET(SceKernelModulemgr_modid, unlink_imports, 0x5620)
 
   return 0;
 }
