@@ -26,6 +26,7 @@ static SceUID hook_lock = -1;
 
 class Process;
 
+void dump_state(SceUID pid);
 struct Patch {
     u32 target_addr;
     substitute_function_hook_record* record;
@@ -102,7 +103,7 @@ public:
         }
     }
 
-    void cleanup_module(const SceModuleCB& module_cb);
+    void cleanup_module(const SceModuleCB& module_cb, bool destructing);
 };
 
 class Processes {
@@ -180,8 +181,9 @@ int HookLocation::resolve(CtxSwitched& sw, u32& ptr) const {
 
     u32 start = (u32)seg->base_addr;
     u32 end = start + seg->memsz;
+    LOGD("text_start=%08x text_end=%08x dest=%08x", start, end, ptr);
     if(ptr < start || ptr > end) {
-        LOGD("start=%08x end=%08x size=0x%x ptr=%08x out of bounds", start, end, seg->memsz, ptr);
+        LOGE("destination out of bounds");
         return STAI_ERROR_NOT_FOUND;
     }
     return 0;
@@ -225,6 +227,9 @@ extern "C" void execmem_free(void* ptr, void* opt) {
 extern "C" int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write* writes, size_t nwrites, execmem_pc_patch_callback callback, void* callback_ctx) {
     (void)callback;
     (void)callback_ctx;
+    if(nwrites < 1) {
+        return SUBSTITUTE_OK;
+    }
     execmem_foreign_write* write = &writes[0];
     LOGD("dst=%08x, src=%p, len=%d", write->dst, write->src, write->len);
 
@@ -297,13 +302,16 @@ int unpatch_function(CtxSwitched& sw, Process& process, Patch& patch) {
     if(patch.record == nullptr) {
         return STAI_ERROR_UNEXPECTED;
     }
-    int ret = write_user_text(sw, process.pid, process.remaps, (u32)patch.record->function, (u8*)patch.record->saved_buffer, patch.record->buffer_size);
+    int ret = write_user_text(
+        sw, process.pid, process.remaps,
+        (u32)patch.record->function, (u8*)patch.record->saved_buffer, patch.record->buffer_size
+    );
     free(patch.record);
     patch.record = nullptr;
     return ret;
 }
 
-void Process::cleanup_module(const SceModuleCB& module_cb) {
+void Process::cleanup_module(const SceModuleCB& module_cb, bool destructing) {
     const u32 text_start = (u32)module_cb.segments.segments[0].base_addr;
     const u32 text_end = text_start + module_cb.segments.segments[0].memsz;
 
@@ -315,9 +323,14 @@ void Process::cleanup_module(const SceModuleCB& module_cb) {
         SwitchCtx ctx(module_cb.pid);
         for(Patch& patch : patch_slice) {
             if(patch.record) {
-                int ret = unpatch_function(ctx, *this, patch);
-                (void)(ret);
-                LOGD("unpatch_function: %08x", ret);
+                if(destructing) {
+                    free(patch.record);
+                    patch.record = nullptr;
+                } else {
+                    int ret = unpatch_function(ctx, *this, patch);
+                    (void)(ret);
+                    LOGD("unpatch_function: %08x", ret);
+                }
             }
         }
         this->patches.erase_slice(patch_slice);
@@ -567,7 +580,8 @@ TAI_HOOK(int, ModulemgrDestructor, void* data) {
         ScopeLock lock(hook_lock);
         Process* process = Processes::get(module_cb.pid);
         if(process) {
-            process->cleanup_module(module_cb);
+            dump_state(module_cb.pid);
+            process->cleanup_module(module_cb, true);
         }
     }
     return TAI_HOOK_CONTINUE(ModulemgrDestructor, data);
@@ -592,6 +606,7 @@ TAI_HOOK(int, startModuleCommon, SceUID pid, SceUID modid, size_t argc, void* ar
     }
     ret = TAI_HOOK_CONTINUE(startModuleCommon, pid, modid, argc, argv, param_5, option, status);
     module_cb->module_start = real_module_start;
+    dump_state(module_cb->pid);
     return ret;
 }
 
@@ -605,7 +620,8 @@ TAI_HOOK(int, ModulemgrStopModule, SceUID pid, SceUID modid, int argc, void* arg
             if(ret < 0) {
                 return ret;
             }
-            process->cleanup_module(*module_cb);
+            dump_state(module_cb->pid);
+            process->cleanup_module(*module_cb, false);
         }
     }
     return TAI_HOOK_CONTINUE(ModulemgrStopModule, pid, modid, argc, argv, param_5, option, status);
@@ -676,3 +692,38 @@ int hooks_init() {
 
     return 0;
 }
+
+#ifdef DEBUG
+void dump_state(SceUID pid) {
+    Process* process = Processes::get(pid);
+    if(!process) {
+        LOGD("no state pid=%08x", pid);
+        return;
+    }
+
+    LOGD("pid=%08x", pid);
+    LOGD("process->patches.size: %d", process->patches.size());
+    for(auto& patch : process->patches) {
+        LOGD("  target_addr=%08x record=%08x old_func=%08x", patch.target_addr, patch.record, patch.old_func);
+        LOGD("  chain.size: %d", patch.chain.size());
+        for(auto& entry : patch.chain) {
+            LOGD("    chain ptr: %08x", entry.raw());
+        }
+    }
+    LOGD("");
+
+    LOGD("process->remaps.size: %d", process->remaps.size());
+    for(auto& remap : process->remaps) {
+        LOGD("  target_vaddr=%08x orig_pte=%08x block_uid=%08x", remap.target_vaddr, remap.orig_pte, remap.block_uid);
+    }
+    LOGD("");
+
+    LOGD("process->module_start_regs.size: %d", process->module_start_regs.size());
+    for(auto& reg : process->module_start_regs) {
+        LOGD("  library_nid=%08x dest_func=%08x hook_ref=%08x", reg.library_nid, reg.dest_func, reg.hook_ref.raw());
+    }
+    LOGD("");
+}
+#else
+void dump_state(SceUID pid) {}
+#endif

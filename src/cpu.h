@@ -75,6 +75,10 @@ public:
     inline_always User() : ptr(nullptr) {}
     inline_always User(T* ptr) : ptr(ptr) {}
 
+    inline_always T* raw() {
+        return ptr;
+    }
+
     inline_always bool operator==(User<T>& other) {
         return this->ptr == other.ptr;
     }
@@ -131,8 +135,8 @@ public:
 };
 
 std::tuple<u32, u32> inline_always align_cache_line(u32 vma, u32 len) {
-    u32 vma_align = vma & ~0x1F;
-    u32 len_align = ((vma - vma_align + len + 0x1F) & ~0x1F);
+    u32 vma_align = vma & ~0x3F;
+    u32 len_align = ((vma - vma_align + len + 0x3F) & ~0x3F);
     return {vma_align, len_align};
 }
 

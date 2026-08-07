@@ -275,6 +275,7 @@ public:
     using Vec<T>::operator[];
     using Vec<T>::begin;
     using Vec<T>::end;
+    using Vec<T>::size;
     using Slice = typename Vec<T>::Slice;
 
     FindResult find(Key key) const {
@@ -354,6 +355,7 @@ public:
     using Vec<T>::operator[];
     using Vec<T>::begin;
     using Vec<T>::end;
+    using Vec<T>::size;
     using Slice = typename Vec<T>::Slice;
 
     bool find(Key key, size_t& start, size_t& end) const {
