@@ -30,7 +30,7 @@ void hex_dump(const void* data, size_t size);
 #endif
 
 #define LOG(TAG, fmt, ...) do { \
-  ksceKernelPrintf("[stai:" TAG "] %s " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
+    ksceKernelPrintf("[stai:" TAG "] %s " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 } while(0)
 
 #define LOGE(fmt, ...) LOG("E", fmt, ##__VA_ARGS__)
@@ -38,7 +38,7 @@ void hex_dump(const void* data, size_t size);
 #define LOGI(fmt, ...) LOG("I", fmt, ##__VA_ARGS__)
 
 #ifdef DEBUG
-  #define LOGD(fmt, ...) LOG("D", fmt, ##__VA_ARGS__)
+    #define LOGD(fmt, ...) LOG("D", fmt, ##__VA_ARGS__)
 #else
 #define LOGD(fmt, ...) {}
 #endif
@@ -50,12 +50,12 @@ void hex_dump(const void* data, size_t size);
 #define EXPORTED __attribute__((used))
 
 #define assert(cond) \
-  do { \
-    if (!(cond)) { \
-      ksceKernelPrintf("Assertion failed: %s, file %s, line %d\n", #cond, __FILE__, __LINE__); \
-      while(1); \
-    } \
-  } while (0)
+    do { \
+        if (!(cond)) { \
+            ksceKernelPrintf("Assertion failed: %s, file %s, line %d\n", #cond, __FILE__, __LINE__); \
+            while(1); \
+        } \
+    } while (0)
 
 #define debug_assert(cond) assert(cond)
 

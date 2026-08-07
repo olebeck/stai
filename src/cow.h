@@ -8,16 +8,16 @@
 #include "cpu.h"
 
 struct PageRemap {
-  u32 target_vaddr;
-  u32 orig_pte;
-  SceUID block_uid;
+    u32 target_vaddr;
+    u32 orig_pte;
+    SceUID block_uid;
 
-  PageRemap(u32 target_vaddr, SceUID block_uid) :
-    target_vaddr(target_vaddr), orig_pte(0), block_uid(block_uid) {}
-  PageRemap(const PageRemap&) = delete;
-  PageRemap& operator=(const PageRemap&) = delete;
-  PageRemap(PageRemap&&) = default;
-  PageRemap& operator=(PageRemap&&) = default;
+    PageRemap(u32 target_vaddr, SceUID block_uid) :
+        target_vaddr(target_vaddr), orig_pte(0), block_uid(block_uid) {}
+    PageRemap(const PageRemap&) = delete;
+    PageRemap& operator=(const PageRemap&) = delete;
+    PageRemap(PageRemap&&) = default;
+    PageRemap& operator=(PageRemap&&) = default;
 };
 
 typedef SortedVec<PageRemap, u32, &PageRemap::target_vaddr> PageRemapVec;

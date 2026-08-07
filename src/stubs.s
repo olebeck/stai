@@ -1,43 +1,43 @@
 .macro vitastub lib, name, flags, libnid, funcnid
-  .arm
-  .arch armv7a
-  .section .vitalink.fstubs.\lib,"ax"
-  .align 4
-  .global \name
-  .type \name, %function
-  \name:
-    .word \flags
-    .word \libnid
-    .word \funcnid
+    .arm
+    .arch armv7a
+    .section .vitalink.fstubs.\lib,"ax"
     .align 4
+    .global \name
+    .type \name, %function
+    \name:
+        .word \flags
+        .word \libnid
+        .word \funcnid
+        .align 4
 .endm
 
 .macro vitastub_ver lib, name, flags, libnid_360, funcnid_360, libnid_363, funcnid_363
-  vitastub \lib \name\()_360 \flags \libnid_360 \funcnid_360
-  vitastub \lib \name\()_363 \flags \libnid_363 \funcnid_363
+    vitastub \lib \name\()_360 \flags \libnid_360 \funcnid_360
+    vitastub \lib \name\()_363 \flags \libnid_363 \funcnid_363
 
-  .section .data.fstubs,"aw"
-  .align 4
-  .global \name\()_stub
-  .type \name\()_stub, %object
-  \name\()_stub:
-    .word \name\()_360
+    .section .data.fstubs,"aw"
+    .align 4
+    .global \name\()_stub
+    .type \name\()_stub, %object
+    \name\()_stub:
+        .word \name\()_360
 
-  .section .text,"ax"
-  .global \name
-  .type \name, %function
-  \name:
-    ldr r12, 1f
-    ldr r12, [r12]
-    bx  r12
-  .align 2
-  1: .word \name\()_stub
+    .section .text,"ax"
+    .global \name
+    .type \name, %function
+    \name:
+        ldr r12, 1f
+        ldr r12, [r12]
+        bx  r12
+    .align 2
+    1: .word \name\()_stub
 .endm
 
 .macro patch_363 name
-  ldr r2, =\name\()_stub
-  ldr r1, =\name\()_363
-  str r1, [r2]
+    ldr r2, =\name\()_stub
+    ldr r1, =\name\()_363
+    str r1, [r2]
 .endm
 
 vitastub_ver SceCpuForKernel, ksceKernelIcacheInvalidateRange, 0x18, 0x54BF2BAB, 0x19F17BD0, 0xA5195D20, 0x73E895EA
@@ -59,13 +59,13 @@ vitastub SceDebugForDriver, printf, 0x10, 0x88758561, 0x391b74b7
 .global init_363_stubs
 .type init_363_stubs, %function
 init_363_stubs:
-  patch_363 ksceKernelIcacheInvalidateRange
-  patch_363 ksceKernelL1DcacheCleanInvalidateRange
+    patch_363 ksceKernelIcacheInvalidateRange
+    patch_363 ksceKernelL1DcacheCleanInvalidateRange
 //  patch_363 ksceKernelL1DcacheCleanRange
 //  patch_363 ksceKernelCopyToUserTextDomain
-  patch_363 ksceKernelFindClassByName
-  patch_363 ksceKernelReallocHeapMemory
-  patch_363 ksceKernelGetProcessModuleInfo
-  patch_363 ksceKernelGetModuleCB
-  patch_363 ksceKernelGetModuleIdByPid
-  bx lr
+    patch_363 ksceKernelFindClassByName
+    patch_363 ksceKernelReallocHeapMemory
+    patch_363 ksceKernelGetProcessModuleInfo
+    patch_363 ksceKernelGetModuleCB
+    patch_363 ksceKernelGetModuleIdByPid
+    bx lr
