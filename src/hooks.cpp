@@ -528,16 +528,21 @@ void module_start_hook_make_chain(const SceModuleCB& module_cb, void*& new_modul
     for(size_t i = 0; i < module_cb.lib_export_num; i++) {
         sce_module_exports* exp = &module_cb.exports[i];
         for(auto& reg : process->module_start_regs.slice(exp->lib_nid)) {
-            if(first == nullptr) {
-                first = &reg;
-            }
-            User<StaiRef> next = prev ? prev->hook_ref : nullptr;
-            LOGD("write ref next=%p func=%p old=%p", next, reg.dest_func, module_cb.module_start);
+            LOGD("write ref func=%p old=%p", reg.dest_func, module_cb.module_start);
             reg.hook_ref.write(ctx, StaiRef{
-                .next = next,
+                .next = nullptr,
                 .func = reg.dest_func,
                 .old = (u32)module_cb.module_start
             });
+            if(first == nullptr) {
+                first = &reg;
+            }
+            if(prev) {
+                StaiRef prev_ref = prev->hook_ref.read(ctx);
+                prev_ref.next = reg.hook_ref;
+                prev_ref.old = 0;
+                prev->hook_ref.write(ctx, prev_ref);
+            }
             prev = &reg;
         }
     }
