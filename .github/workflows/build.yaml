@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y cmake xz-utils
+          sudo apt install -y cmake xz-utils bsdtar
     
       - name: Vitasdk
         run: |
