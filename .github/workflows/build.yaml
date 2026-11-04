@@ -33,9 +33,9 @@ jobs:
           ./bootstrap-vitasdk.sh
           export VITASDK=/usr/local/vitasdk
           export PATH=$PATH:$VITASDK/bin
-          ./vdpm taihen
           echo "VITASDK=/usr/local/vitasdk" >> $GITHUB_ENV
           echo "PATH=${PATH}:/usr/local/vitasdk/bin" >> $GITHUB_ENV
+          vdpm pacman -S taihen
 
       - name: Build
         run: |

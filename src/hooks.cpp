@@ -14,6 +14,7 @@
 #include "cpu.h"
 #include "module.h"
 #include "cow.h"
+#include "tai.h"
 
 extern "C" {
 #include "../substitute/lib/execmem.h"
@@ -106,11 +107,8 @@ public:
     void cleanup_module(const SceModuleCB& module_cb, bool destructing);
 };
 
-class Processes {
-private:
-    static int kpls_slot;
-public:
-    Processes() = default;
+namespace Processes {
+    static int kpls_slot = -1;
 
     static int init() {
         kpls_slot = ksceKernelCreateProcessLocalStorage("stai_process", sizeof(Process));
@@ -143,8 +141,6 @@ public:
         }
     }
 };
-
-int Processes::kpls_slot = -1;
 
 int HookLocation::resolve(CtxSwitched& sw, u32& ptr) const {
     SceModuleCB* module_cb;
@@ -586,33 +582,6 @@ void module_start_hook_make_chain(const SceModuleCB& module_cb, void*& new_modul
         new_module_start = (void*)first->dest_func;
     }
 }
-
-#define TAI_CONTINUEPP(fn, hook, ...) ({ \
-    struct _tai_hook_user *cur, *next; \
-    cur = (struct _tai_hook_user *)(hook); \
-    next = (struct _tai_hook_user *)cur->next; \
-    typedef __typeof__(fn) *_fn_ptr_type; \
-        (next == NULL)  ? \
-        ((_fn_ptr_type)(cur->old))(__VA_ARGS__) \
-    : \
-        ((_fn_ptr_type)(next->func))(__VA_ARGS__) \
-    ; \
-})
-
-#define TAI_HOOK_CONTINUE(name, ...) TAI_CONTINUEPP(name ## _hook, name ## _hook_ref, __VA_ARGS__)
-
-#define TAI_HOOK_OFFSET(modid, name, offset) \
-    ret = taiHookFunctionOffsetForKernel(KERNEL_PID, &name ## _hook_ref, modid, 0, offset, 1, (void*)name ## _hook); \
-    LOGD("taiHookFunctionOffsetForKernel(" #name "): %08x", ret); \
-    if(ret < 0) { \
-        return ret; \
-    } \
-    name ## _hook_id = ret;
-
-#define TAI_HOOK(typ, name, ...) \
-    static tai_hook_ref_t name ## _hook_ref; \
-    static SceUID name ## _hook_id = -1; \
-    static typ name ## _hook(__VA_ARGS__)
 
 TAI_HOOK(int, ModulemgrDestructor, void* data) {
     SceModuleObject* module_obj = (SceModuleObject*)data;

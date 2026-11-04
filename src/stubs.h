@@ -9,7 +9,6 @@ extern "C" {
 #endif
 
 void stai_init_363_stubs();
-void* ksceKernelReallocHeapMemory(SceUID uid, void* ptr, size_t newsize);
 
 #ifdef __cplusplus
 }
