@@ -35,7 +35,7 @@ jobs:
           export PATH=$PATH:$VITASDK/bin
           echo "VITASDK=/usr/local/vitasdk" >> $GITHUB_ENV
           echo "PATH=${PATH}:/usr/local/vitasdk/bin" >> $GITHUB_ENV
-          vdpm pacman -S taihen
+          vdpm pacman -S taihen --noconfirm
 
       - name: Build
         run: |
