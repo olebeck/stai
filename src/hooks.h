@@ -41,3 +41,5 @@ int hook_function(CtxSwitched& sw, SceUID pid, const HookLocation& location, u32
 int hook_module_start(SceUID pid, u32 library_nid, u32 dest_func, User<StaiRef> hook_ref);
 
 int unhook_function(CtxSwitched& sw, SceUID pid, User<StaiRef> hook_ref);
+
+int write_process_text(CtxSwitched& sw, SceUID pid, u32 dst, const u8* data, u32 len);

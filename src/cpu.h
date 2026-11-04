@@ -30,18 +30,29 @@ public:
 class [[nodiscard]] SwitchCtx : public CtxSwitched {
     SceKernelProcessContext prev_ctx;
     SceKernelIntrStatus intr;
+    bool active;
 
 public:
-    inline_always SwitchCtx(SceUID pid) {
+    inline_always SwitchCtx(SceUID pid) : active(false) {
         SceKernelProcessContext* proc_ctx;
-        ksceKernelProcessGetContext(pid, &proc_ctx);
+        int ret = ksceKernelProcessGetContext(pid, &proc_ctx);
+        if(ret < 0 || proc_ctx == nullptr) {
+            return;
+        }
         intr = ksceKernelCpuSuspendIntr();
         ksceKernelProcessSwitchContext(proc_ctx, &prev_ctx);
+        active = true;
     }
 
     inline_always ~SwitchCtx() {
-        ksceKernelProcessSwitchContext(&prev_ctx, nullptr);
-        ksceKernelCpuResumeIntr(intr);
+        if(active) {
+            ksceKernelProcessSwitchContext(&prev_ctx, nullptr);
+            ksceKernelCpuResumeIntr(intr);
+        }
+    }
+
+    inline_always bool valid() const {
+        return active;
     }
 
     SwitchCtx(const SwitchCtx&) = delete;
@@ -156,13 +167,13 @@ void inline_always cache_flush_user(CtxSwitched&, u32 vma, size_t len) {
     ksceKernelIcacheInvalidateRange((void*)vma_align, len_align);
 }
 
-void inline_always copy_from_to_user_text_domain(CtxSwitched&, void* dst, void* src, size_t len) {
+void inline_always copy_from_to_user_text_domain(CtxSwitched&, void* dst, const void* src, size_t len) {
     Dacr dacr(0x15450FC3);
     // should usr ldrt and strt but thats not *that* important
     memcpy(dst, src, len); 
 }
 
-void inline_always copy_to_user_text_domain(CtxSwitched&, void* dst, void* src, size_t len) {
+void inline_always copy_to_user_text_domain(CtxSwitched&, void* dst, const void* src, size_t len) {
     Dacr dacr(0x15450FC3);
     // should usr ldrt and strt but thats not *that* important
     memcpy(dst, src, len);

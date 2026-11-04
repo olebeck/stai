@@ -109,19 +109,35 @@ vita_create_stubs(stai-stubs stai ${CMAKE_SOURCE_DIR}/exports.yml
   KERNEL
 )
 
-add_custom_command(OUTPUT stai-vdpm-package.tar.xz
-  COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/package/lib
-  COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/package/include
-  COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/libstai_stub.a ${CMAKE_CURRENT_BINARY_DIR}/package/lib/
-  COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/libstai_stub_weak.a ${CMAKE_CURRENT_BINARY_DIR}/package/lib/
-  COMMAND cp -r ${CMAKE_SOURCE_DIR}/include/stai ${CMAKE_CURRENT_BINARY_DIR}/package/include/
-  COMMAND tar -C ${CMAKE_CURRENT_BINARY_DIR}/package -cJf stai-vdpm-package.tar.xz lib include
-  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  DEPENDS stai-stubs ${CMAKE_SOURCE_DIR}/include/stai/stai.h
+install(FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/libstai_stub.a
+  ${CMAKE_CURRENT_BINARY_DIR}/libstai_stub_weak.a
+  DESTINATION lib
+)
+
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/stai DESTINATION include)
+
+find_program(VITA_MAKEPKG vita-makepkg REQUIRED)
+
+set(STAI_PACKAGE ${CMAKE_CURRENT_BINARY_DIR}/stai-0.0.1-1-vita.pkg.tar.xz)
+
+add_custom_command(OUTPUT ${STAI_PACKAGE}
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${STAI_PACKAGE}
+  COMMAND ${VITA_MAKEPKG} -p VITABUILD --noconfirm -c -f
+  COMMAND ${CMAKE_COMMAND} -E rename
+    ${CMAKE_SOURCE_DIR}/pkg/stai-0.0.1-1-vita.pkg.tar.xz
+    ${STAI_PACKAGE}
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/pkg
+  DEPENDS
+    stai-stubs
+    ${CMAKE_SOURCE_DIR}/pkg/VITABUILD
+    ${CMAKE_SOURCE_DIR}/CMakeLists.txt
+    ${CMAKE_SOURCE_DIR}/include/stai/stai.h
+    ${CMAKE_SOURCE_DIR}/include/stai/stai_kernel.h
 )
 
 add_custom_target(package ALL
-  DEPENDS stai-vdpm-package.tar.xz
+  DEPENDS ${STAI_PACKAGE}
 )
 
 add_custom_command(

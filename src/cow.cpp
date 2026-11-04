@@ -119,10 +119,10 @@ static int restore_page(SceAddressSpace& as, u32 vaddr, u32 orig_pte) {
     return 0;
 }
 
-static int cow_write(CtxSwitched& sw, SceAddressSpace& as, PageRemapVec& remaps, u32 addr, u8* data, u32 len) {
+static int cow_write(CtxSwitched& sw, SceAddressSpace& as, PageRemapVec& remaps, u32 addr, const u8* data, u32 len) {
     u32 remaining = len;
     u32 current_vaddr = addr;
-    u8* current_data = data;
+    const u8* current_data = data;
 
     while(remaining > 0) {
         u32 page_base = current_vaddr & ~0xfff;
@@ -143,30 +143,46 @@ static int cow_write(CtxSwitched& sw, SceAddressSpace& as, PageRemapVec& remaps,
             if(block_uid < 0) {
                 return block_uid;
             }
-            ksceKernelMapMemBlock(block_uid);
+            int ret = ksceKernelMapMemBlock(block_uid);
+            if(ret < 0) {
+                ksceKernelFreeMemBlock(block_uid);
+                return ret;
+            }
+
+            void* new_vaddr;
+            u32 new_paddr;
+            ret = ksceKernelGetMemBlockBase(block_uid, &new_vaddr);
+            if(ret < 0) {
+                ksceKernelFreeMemBlock(block_uid);
+                return ret;
+            }
+            ret = ksceKernelVAtoPA(new_vaddr, &new_paddr);
+            if(ret < 0) {
+                ksceKernelFreeMemBlock(block_uid);
+                return ret;
+            }
+
             PageRemap* remap = remaps.emplace_at(find, page_base, block_uid);
             if(remap == nullptr) {
                 ksceKernelFreeMemBlock(block_uid);
                 return STAI_ERROR_OOM;
             }
 
-            void* new_vaddr;
-            u32 new_paddr;
-            ksceKernelGetMemBlockBase(block_uid, &new_vaddr);
-            ksceKernelVAtoPA(new_vaddr, &new_paddr);
-
             LOGD("copying page to new block: page_base=%08x, new_vaddr=%08x", page_base, new_vaddr);
             copy_from_to_user_text_domain(sw, new_vaddr, (void*)page_base, 0x1000);
             ksceKernelDcacheCleanRange(new_vaddr, 0x1000);
 
-            int ret = remap_page(as, page_base, new_paddr, remap->orig_pte);
+            ret = remap_page(as, page_base, new_paddr, remap->orig_pte);
             if(ret < 0) {
+                remaps.erase(page_base);
+                ksceKernelFreeMemBlock(block_uid);
                 return ret;
             }
         }
 
         LOGD("copying patch: vaddr=%08x, dst=%p, size=%d", page_base, current_vaddr, copy_size);
         copy_to_user_text_domain(sw, (void*)current_vaddr, current_data, copy_size);
+        cache_flush_user(sw, current_vaddr, copy_size);
 
         current_data += copy_size;
         current_vaddr += copy_size;
@@ -179,7 +195,7 @@ static bool is_shared_address(u32 addr) {
     return addr >= 0xe0000000 && addr <= 0xf0000000;
 }
 
-int write_user_text(CtxSwitched& sw, SceUID pid, PageRemapVec& remaps, u32 dst, u8* data, u32 len) {
+int write_user_text(CtxSwitched& sw, SceUID pid, PageRemapVec& remaps, u32 dst, const u8* data, u32 len) {
     LOGD("dst=%08x, data=%p, len=%d", dst, data, len);
 #ifdef DEBUG
     LOGD("patch_data:");
@@ -193,8 +209,7 @@ int write_user_text(CtxSwitched& sw, SceUID pid, PageRemapVec& remaps, u32 dst, 
         return cow_write(sw, *as, remaps, dst, data, len);
     } else {
         copy_to_user_text_domain(sw, (void*)dst, data, len);
-        const auto [dst_align, len_align] = align_cache_line(dst, len);
-        ksceKernelDcacheCleanInvalidateRange((void*)dst_align, len_align);
+        cache_flush_user(sw, dst, len);
         return 0;
     }
 }
@@ -202,7 +217,7 @@ int write_user_text(CtxSwitched& sw, SceUID pid, PageRemapVec& remaps, u32 dst, 
 void restore_pages(SceUID pid, PageRemapVec::Slice& slice) {
     SceAddressSpace* as = get_process_address_space(pid);
     for(PageRemap& remap : slice) {
-        if(remap.orig_pte) {
+        if(as && remap.orig_pte) {
             restore_page(*as, remap.target_vaddr, remap.orig_pte);
         }
         if(remap.block_uid) {

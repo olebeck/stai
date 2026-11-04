@@ -22,6 +22,6 @@ struct PageRemap {
 
 typedef SortedVec<PageRemap, u32, &PageRemap::target_vaddr> PageRemapVec;
 
-int write_user_text(CtxSwitched& sw, SceUID pid, PageRemapVec& remaps, u32 dst, u8* data, u32 len);
+int write_user_text(CtxSwitched& sw, SceUID pid, PageRemapVec& remaps, u32 dst, const u8* data, u32 len);
 
 void restore_pages(SceUID pid, PageRemapVec::Slice& slice);

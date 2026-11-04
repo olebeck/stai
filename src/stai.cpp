@@ -10,6 +10,7 @@
 #include "version.h"
 
 #include "../include/stai/stai.h"
+#include "../include/stai/stai_kernel.h"
 
 
 extern "C" int module_get_export_func(SceUID pid, const char *modname, uint32_t libnid, uint32_t funcnid, void** func);
@@ -38,7 +39,7 @@ extern "C" EXPORTED int module_start(SceSize argc, const void* argv) {
     }
     if(ret == 1) {
         LOGD("running on >3.63");
-        init_363_stubs();
+        stai_init_363_stubs();
     }
 
     ret = heap_init();
@@ -168,4 +169,20 @@ extern "C" EXPORTED int _staiFindModuleByLibraryNid(u32 library_nid, stai_module
         });
     }
     return 0;
+}
+
+extern "C" EXPORTED int staiWriteText(SceUID pid, uint32_t dst, const void* data, uint32_t len) {
+    LOG_FUNC();
+    if(len == 0) {
+        return STAI_SUCCESS;
+    }
+    if(data == nullptr) {
+        return STAI_ERROR_INVALID_ARGS;
+    }
+
+    SwitchCtx ctx(pid);
+    if(!ctx.valid()) {
+        return STAI_ERROR_INVALID_ARGS;
+    }
+    return write_process_text(ctx, pid, dst, (const u8*)data, len);
 }

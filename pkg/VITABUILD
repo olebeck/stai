@@ -1,0 +1,12 @@
+pkgname=stai
+pkgver=0.0.1
+pkgrel=1
+url="https://github.com/olebeck/stai"
+
+build() {
+	:
+}
+
+package() {
+	DESTDIR="$pkgdir" cmake --install ../../build
+}

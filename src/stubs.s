@@ -56,9 +56,9 @@ vitastub SceDebugForDriver, printf, 0x10, 0x88758561, 0x391b74b7
 //vitastub SceSysmemForKernel, ksceKernelGetMemBlockType, 0x10, 0x63A519E5, 0x289BE3EC
 
 .section .text,"ax"
-.global init_363_stubs
-.type init_363_stubs, %function
-init_363_stubs:
+.global stai_init_363_stubs
+.type stai_init_363_stubs, %function
+stai_init_363_stubs:
     patch_363 ksceKernelIcacheInvalidateRange
     patch_363 ksceKernelL1DcacheCleanInvalidateRange
 //  patch_363 ksceKernelL1DcacheCleanRange

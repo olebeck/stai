@@ -64,7 +64,7 @@ jobs:
           draft: false
           prerelease: ${{ steps.set_tag.outputs.manual_release == 'false' }}
           files: |
-            build/stai-vdpm-package.tar.xz
+            build/stai-*.pkg.tar.xz
             build/stai.skprx
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

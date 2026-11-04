@@ -241,7 +241,7 @@ extern "C" int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write*
     return SUBSTITUTE_OK;
 }
 
-int patch_function(CtxSwitched& sw, Process& process, Patch& patch, u32 dest_func, User<StaiRef> hook_ref) {
+static int install_function_patch(CtxSwitched& sw, Process& process, Patch& patch, u32 dest_func) {
     LOG_FUNC();
     ExecmemCtx ctx(sw, process.pid, &process.sch);
 
@@ -278,6 +278,22 @@ int patch_function(CtxSwitched& sw, Process& process, Patch& patch, u32 dest_fun
         return STAI_ERROR_BASE + args.ret;
     }
 
+    if(ctx.pending_write.pending()) {
+        int ret = ctx.pending_write.commit(sw, process.pid, process.remaps);
+        if(ret < 0) {
+            return ret;
+        }
+    }
+    return 0;
+}
+
+int patch_function(CtxSwitched& sw, Process& process, Patch& patch, u32 dest_func, User<StaiRef> hook_ref) {
+    LOG_FUNC();
+    int ret = install_function_patch(sw, process, patch, dest_func);
+    if(ret < 0) {
+        return ret;
+    }
+
     hook_ref.write(sw, StaiRef{
         .next = nullptr,
         .func = dest_func,
@@ -286,13 +302,6 @@ int patch_function(CtxSwitched& sw, Process& process, Patch& patch, u32 dest_fun
     });
     if(patch.chain.emplace_back(hook_ref) == nullptr) {
         return STAI_ERROR_MEMORY;
-    }
-
-    if(ctx.pending_write.pending()) {
-        int ret = ctx.pending_write.commit(sw, process.pid, process.remaps);
-        if(ret < 0) {
-            return ret;
-        }
     }
     return 0;
 }
@@ -381,17 +390,35 @@ int Patch::find_ref(User<StaiRef> target) {
     return -1;
 }
 
-int Patch::remove_first(CtxSwitched& sw, Process& process) {
-    StaiRef next_ref = this->chain.front()->read(sw);
-    User<StaiRef> tail = *this->chain.back();
-
-    int ret = unpatch_function(sw, process, *this);
+static int repatch_function(CtxSwitched& sw, Process& process, Patch& patch, u32 new_dest, User<StaiRef> tail) {
+    int ret = unpatch_function(sw, process, patch);
     if(ret < 0) {
         return ret;
     }
-    ret = patch_function(sw, process, *this, next_ref.func, tail);
+    ret = install_function_patch(sw, process, patch, new_dest);
+    if(ret < 0) {
+        return ret;
+    }
+
+    StaiRef tail_ref = tail.read(sw);
+    tail_ref.old = patch.old_func;
+    tail.write(sw, tail_ref);
+    return 0;
+}
+
+int Patch::remove_first(CtxSwitched& sw, Process& process) {
+    if(this->chain.size() < 2) {
+        return STAI_ERROR_UNEXPECTED;
+    }
+    StaiRef next_ref = this->chain[1].read(sw);
+    User<StaiRef> tail = *this->chain.back();
+
+    int ret = repatch_function(sw, process, *this, next_ref.func, tail);
+    if(ret < 0) {
+        return ret;
+    }
     this->chain.erase(0);
-    return ret;
+    return 0;
 }
 
 void Patch::remove_middle(CtxSwitched& sw, int index) {
@@ -512,6 +539,15 @@ int unhook_function(CtxSwitched& sw, SceUID pid, User<StaiRef> hook_ref) {
         process->patches.erase(find);
     }
     return 0;
+}
+
+int write_process_text(CtxSwitched& sw, SceUID pid, u32 dst, const u8* data, u32 len) {
+    ScopeLock lock(hook_lock);
+    Process* process = Processes::get_or_create(pid);
+    if(!process) {
+        return STAI_ERROR_OOM;
+    }
+    return write_user_text(sw, pid, process->remaps, dst, data, len);
 }
 
 void module_start_hook_make_chain(const SceModuleCB& module_cb, void*& new_module_start) {
