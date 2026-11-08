@@ -1,22 +1,25 @@
 #pragma once
 
 #include <psp2kern/types.h>
-#include "std++.h"
+
 #include "cpu.h"
 
-struct StaiRef {
-    User<StaiRef> next;
+namespace stai::hooks {
+
+struct HookRef {
+    cpu::User<HookRef> next;
     u32 func;
     u32 old;
     u32 target_addr;
-    StaiRef() = default;
+
+    HookRef() = default;
 };
 
 struct HookLocation {
     enum class Type {
         Offset,
         Import,
-        Export
+        Export,
     };
 
     SceUID module_uid;
@@ -31,15 +34,17 @@ struct HookLocation {
         } nid;
     };
 
-    int resolve(CtxSwitched& sw, u32& out_ptr) const;
+    int resolve(u32& out_ptr) const;
 };
 
-int hooks_init();
+int init();
 
-int hook_function(CtxSwitched& sw, SceUID pid, const HookLocation& location, u32 dest_func, User<StaiRef> hook_ref);
+int install(SceUID pid, const HookLocation& location, u32 dest_func, cpu::User<HookRef> hook_ref);
 
-int hook_module_start(SceUID pid, u32 library_nid, u32 dest_func, User<StaiRef> hook_ref);
+int install_module_start(SceUID pid, u32 library_nid, u32 dest_func, cpu::User<HookRef> hook_ref);
 
-int unhook_function(CtxSwitched& sw, SceUID pid, User<StaiRef> hook_ref);
+int uninstall(SceUID pid, cpu::User<HookRef> hook_ref);
 
-int write_process_text(CtxSwitched& sw, SceUID pid, u32 dst, const u8* data, u32 len);
+int write_process_text(SceUID pid, u32 dst, const u8* data, u32 len);
+
+} // namespace stai::hooks

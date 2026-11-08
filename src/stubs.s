@@ -56,7 +56,6 @@ vitastub SceDebugForDriver, printf, 0x10, 0x88758561, 0x391b74b7
 //vitastub SceSysmemForKernel, ksceKernelGetMemBlockType, 0x10, 0x63A519E5, 0x289BE3EC
 
 .section .text,"ax"
-.global stai_init_363_stubs
 .type stai_init_363_stubs, %function
 stai_init_363_stubs:
     patch_363 ksceKernelIcacheInvalidateRange
@@ -68,4 +67,16 @@ stai_init_363_stubs:
     patch_363 ksceKernelGetProcessModuleInfo
     patch_363 ksceKernelGetModuleCB
     patch_363 ksceKernelGetModuleIdByPid
+    bx lr
+
+.section .text,"ax"
+.global stai_stubs_init
+.type stai_stubs_init, %function
+stai_stubs_init:
+    ldr r0, =ksceKernelGetModuleCB_360
+    bic r0, r0, #1
+    ldr r0, [r0]
+    ldr r1, =0xe24fc008
+    cmp r0, r1
+    beq stai_init_363_stubs
     bx lr

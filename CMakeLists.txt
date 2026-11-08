@@ -66,8 +66,9 @@ add_executable(stai
   src/cow.cpp
   src/hooks.cpp
   src/module.cpp
+  src/process.cpp
   src/stai.cpp
-  src/std.c
+  src/runtime.c
   src/stubs.s
 )
 
@@ -149,14 +150,8 @@ add_custom_command(
 add_subdirectory(test_plugin)
 
 add_custom_target(push
-  DEPENDS test_plugin.suprx-self stai.skprx-self
+  DEPENDS stai.skprx-self
   COMMAND curl -T ${CMAKE_CURRENT_BINARY_DIR}/stai.skprx ftp://$ENV{VITAIP}:1337/ur0:tai/stai.skprx
-  COMMAND curl -T ${CMAKE_CURRENT_BINARY_DIR}/test_plugin/test_plugin.suprx ftp://$ENV{VITAIP}:1337/ur0:tai/test_plugin.suprx
   COMMAND sleep 1
   COMMAND echo reboot | ncat $ENV{VITAIP} 1338
-)
-
-add_custom_target(push2
-  DEPENDS stai.skprx-self
-  COMMAND curl -T ${CMAKE_CURRENT_BINARY_DIR}/stai.skprx ftp://$ENV{VITAIP}:1337/ux0:app/KLOADER00/plugin.skprx
 )

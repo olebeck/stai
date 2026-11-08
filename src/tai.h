@@ -1,4 +1,8 @@
+#pragma once
+
 #include <taihen.h>
+
+#include "log.h"
 
 #define TAI_CONTINUEPP(fn, hook, ...) ({ \
     struct _tai_hook_user *cur, *next; \
@@ -15,8 +19,8 @@
 #define TAI_HOOK_CONTINUE(name, ...) TAI_CONTINUEPP(name ## _hook, name ## _hook_ref, __VA_ARGS__)
 
 #define TAI_HOOK_OFFSET(modid, name, offset) \
-    ret = taiHookFunctionOffsetForKernel(KERNEL_PID, &name ## _hook_ref, modid, 0, offset, 1, (void*)name ## _hook); \
-    LOGD("taiHookFunctionOffsetForKernel(" #name "): %08x", ret); \
+    ret = taiHookFunctionOffsetForKernel(KERNEL_PID, &name ## _hook_ref, modid, 0, offset, 1, reinterpret_cast<void*>(name ## _hook)); \
+    ::stai::log::debug("taiHookFunctionOffsetForKernel(" #name "): %08x", ret); \
     if(ret < 0) { \
         return ret; \
     } \
