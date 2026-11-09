@@ -72,6 +72,10 @@ add_executable(stai
   src/stubs.s
 )
 
+if(DEFINED STAI_VERSION)
+  target_compile_definitions(stai PRIVATE STAI_VERSION=${STAI_VERSION})
+endif()
+
 target_include_directories(stai PRIVATE
   ${CMAKE_CURRENT_BINARY_DIR}
 )
