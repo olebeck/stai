@@ -142,15 +142,6 @@ int uninstall(SceUID pid, cpu::User<HookRef> hook_ref) {
     return 0;
 }
 
-int write_process_text(SceUID pid, u32 dst, const u8* data, u32 len) {
-    ScopeLock lock(hook_lock);
-    Process* process = process_registry::get_or_create(pid);
-    if(!process) {
-        return STAI_ERROR_OOM;
-    }
-    return cow::write_user_text(pid, process->remaps, dst, data, len);
-}
-
 namespace {
 
 void make_module_start_chain(const ModuleCB& module, void*& new_module_start) {
@@ -168,9 +159,9 @@ void make_module_start_chain(const ModuleCB& module, void*& new_module_start) {
 
     ModuleStartReg* first = nullptr;
     ModuleStartReg* previous = nullptr;
-    for (size_t i = 0; i < module.lib_export_num; i++) {
+    for(size_t i = 0; i < module.lib_export_num; i++) {
         ModuleExports* exports = &module.exports[i];
-        for (auto& reg : process->module_start_regs.slice(exports->lib_nid)) {
+        for(auto& reg : process->module_start_regs.slice(exports->lib_nid)) {
             log::debug("write ref func=%p old=%p", reg.dest_func, module.module_start);
             reg.hook_ref.write(HookRef{
                 .next = cpu::User<HookRef>(),
@@ -229,6 +220,8 @@ TAI_HOOK(int, ModulemgrDestructor, void* data) {
         if(process) {
             dump_state(module.pid);
             process->cleanup_module(module, true);
+        } else {
+            release_module_cow(module, true);
         }
     }
     return TAI_HOOK_CONTINUE(ModulemgrDestructor, data);
@@ -257,19 +250,20 @@ TAI_HOOK(int, startModuleCommon, SceUID pid, SceUID modid, size_t argc, void* ar
     return ret;
 }
 
-TAI_HOOK(int, ModulemgrStopModule, SceUID pid, SceUID modid, int argc, void* argv,
-         void* param_5, void* option, int* status) {
+TAI_HOOK(int, ModulemgrStopModule, SceUID pid, SceUID modid, int argc, void* argv, void* param_5, void* option, int* status) {
     if(pid != KERNEL_PID) {
         ScopeLock lock(hook_lock);
+        ModuleCB* module;
+        int ret = ksceKernelGetModuleCB(modid, reinterpret_cast<void**>(&module));
+        if(ret < 0) {
+            return ret;
+        }
         Process* process = process_registry::get(pid);
         if(process) {
-            ModuleCB* module;
-            int ret = ksceKernelGetModuleCB(modid, reinterpret_cast<void**>(&module));
-            if(ret < 0) {
-                return ret;
-            }
             dump_state(module->pid);
             process->cleanup_module(*module, false);
+        } else {
+            release_module_cow(*module, false);
         }
     }
     return TAI_HOOK_CONTINUE(ModulemgrStopModule, pid, modid, argc, argv, param_5, option, status);
@@ -277,6 +271,7 @@ TAI_HOOK(int, ModulemgrStopModule, SceUID pid, SceUID modid, int argc, void* arg
 
 int init() {
     process_registry::init();
+
     hook_lock = ksceKernelCreateMutex("stai_hook_lock", 0, 0, nullptr);
 
     int ret = ksceKernelRegisterProcEventHandler("stai_proc_event", &proc_event_handler, 0);
@@ -326,27 +321,20 @@ void dump_state(SceUID pid) {
 
     log::debug("pid=%08x", pid);
     log::debug("process->patches.size: %d", process->patches.size());
-    for (auto& patch : process->patches) {
-        log::debug("  target_addr=%08x record=%08x old_func=%08x",
-                   patch.target_addr, patch.record, patch.old_func);
+    for(auto& patch : process->patches) {
+        log::debug("  target_addr=%08x record=%08x old_func=%08x", patch.target_addr, patch.record, patch.old_func);
         log::debug("  chain.size: %d", patch.chain.size());
-        for (auto& entry : patch.chain) {
+        for(auto& entry : patch.chain) {
             log::debug("    chain ptr: %08x", entry.raw());
         }
     }
     log::debug("");
 
-    log::debug("process->remaps.size: %d", process->remaps.size());
-    for (auto& remap : process->remaps) {
-        log::debug("  target_vaddr=%08x orig_pte=%08x block_uid=%08x",
-                   remap.target_vaddr, remap.orig_pte, remap.block_uid);
-    }
-    log::debug("");
+    cow::dump_state(pid);
 
     log::debug("process->module_start_regs.size: %d", process->module_start_regs.size());
-    for (auto& reg : process->module_start_regs) {
-        log::debug("  library_nid=%08x dest_func=%08x hook_ref=%08x",
-                   reg.library_nid, reg.dest_func, reg.hook_ref.raw());
+    for(auto& reg : process->module_start_regs) {
+        log::debug("  library_nid=%08x dest_func=%08x hook_ref=%08x", reg.library_nid, reg.dest_func, reg.hook_ref.raw());
     }
     log::debug("");
 }

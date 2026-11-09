@@ -46,7 +46,9 @@ vitastub_ver SceCpuForKernel, ksceKernelL1DcacheCleanInvalidateRange, 0x18, 0x54
 //vitastub_ver SceSysmemForKernel, ksceKernelCopyToUserTextDomain, 0x18, 0x63A519E5, 0x67BAD5B4, 0x02451F0F, 0x5EF1DAAF
 vitastub_ver SceSysmemForKernel, ksceKernelFindClassByName, 0x18, 0x63A519E5, 0x62989905, 0x02451F0F, 0x7D87F706
 vitastub_ver SceSysmemForKernel, ksceKernelReallocHeapMemory, 0x18, 0x63A519E5, 0xFDC0EA11, 0x02451F0F, 0x8EE8B917
+vitastub_ver SceSysmemForKernel, ksceGUIDKernelCreateWithOpt 0x18, 0x63A519E5, 0xDF0288D7, 0x02451F0F, 0xFB6390CE
 vitastub_ver SceProcessmgrForKernel, ksceKernelGetProcessModuleInfo, 0x18, 0x7A69DE86, 0xC1C91BB2, 0xEB1F8EF7, 0x3AF6B088
+vitastub_ver SceProcessmgrForKernel, ksceKernelGetUIDProcessClass, 0x18, 0x7A69DE86, 0xC6820972, 0xEB1F8EF7, 0x98AE4BC8
 vitastub_ver SceModulemgrForKernel, ksceKernelGetModuleCB, 0x18, 0xC445FA63, 0xFE303863, 0x92C9FFC2, 0x37512E29
 vitastub_ver SceModulemgrForKernel, ksceKernelGetModuleIdByPid, 0x18, 0xC445FA63, 0x20A27FA9, 0x92C9FFC2, 0x679F5144
 
@@ -64,7 +66,9 @@ stai_init_363_stubs:
 //  patch_363 ksceKernelCopyToUserTextDomain
     patch_363 ksceKernelFindClassByName
     patch_363 ksceKernelReallocHeapMemory
+    patch_363 ksceGUIDKernelCreateWithOpt
     patch_363 ksceKernelGetProcessModuleInfo
+    patch_363 ksceKernelGetUIDProcessClass
     patch_363 ksceKernelGetModuleCB
     patch_363 ksceKernelGetModuleIdByPid
     bx lr

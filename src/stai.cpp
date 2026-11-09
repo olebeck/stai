@@ -3,6 +3,7 @@
 
 #include "../include/stai/stai.h"
 #include "../include/stai/stai_kernel.h"
+#include "cow.h"
 #include "cpu.h"
 #include "hooks.h"
 #include "log.h"
@@ -38,15 +39,21 @@ extern "C" STAI_EXPORTED int module_start(SceSize argc, const void* argv) {
     stai_stubs_init();
 
     int ret = heap_init();
-    log::debug("heap_init: %08x", ret);
     if(ret < 0) {
-        return ret;
+        log::error("heap_init: %08x", ret);
+        return SCE_KERNEL_START_FAILED;
+    }
+
+    ret = cow::init();
+    if(ret < 0) {
+        log::error("cow::init: %08x", ret);
+        return SCE_KERNEL_START_FAILED;
     }
 
     ret = hooks::init();
-    log::debug("hooks_init: %08x", ret);
     if(ret < 0) {
-        return ret;
+        log::error("hooks_init: %08x", ret);
+        return SCE_KERNEL_START_FAILED;
     }
     return 0;
 }
@@ -164,12 +171,9 @@ extern "C" STAI_EXPORTED int _staiFindModuleByLibraryNid(u32 library_nid, stai_m
     return 0;
 }
 
-extern "C" STAI_EXPORTED int staiWriteText(SceUID pid, uint32_t dst, const void* data, uint32_t len) {
+extern "C" STAI_EXPORTED SceUID staiCowWrite(SceUID pid, uint32_t addr, const void* data, uint32_t size) {
     log::func(__FUNCTION__);
-    if(len == 0) {
-        return STAI_SUCCESS;
-    }
-    if(data == nullptr) {
+    if(size == 0 || data == nullptr) {
         return STAI_ERROR_INVALID_ARGS;
     }
 
@@ -178,5 +182,10 @@ extern "C" STAI_EXPORTED int staiWriteText(SceUID pid, uint32_t dst, const void*
         return STAI_ERROR_INVALID_ARGS;
     }
     cpu::SwitchCtx switch_ctx(context);
-    return hooks::write_process_text(pid, dst, static_cast<const u8*>(data), len);
+    return cow::write(pid, addr, static_cast<const u8*>(data), size);
+}
+
+extern "C" STAI_EXPORTED int staiCowRelease(SceUID uid) {
+    log::func(__FUNCTION__);
+    return cow::release(uid);
 }

@@ -20,7 +20,7 @@ public:
         }
 
         size_t base = 0;
-        while (size > 1) {
+        while(size > 1) {
             size_t half = size / 2;
             size_t mid = base + half;
             bool greater = (this->data() + mid)->*KeyMember > key;
@@ -104,10 +104,10 @@ public:
         }
 
         start = end = result.index();
-        while (start > 0 && (this->data() + start - 1)->*KeyMember == key) {
+        while(start > 0 && (this->data() + start - 1)->*KeyMember == key) {
             --start;
         }
-        while (end < this->size() && (this->data() + end)->*KeyMember == key) {
+        while(end < this->size() && (this->data() + end)->*KeyMember == key) {
             ++end;
         }
         return true;

@@ -17,4 +17,5 @@ stai:
         - _staiFindModuleByLibraryNid
     staiForKernel:
       functions:
-        - staiWriteText
+        - staiCowWrite
+        - staiCowRelease

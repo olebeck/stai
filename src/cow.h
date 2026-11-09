@@ -1,32 +1,21 @@
 #pragma once
 
-#include <psp2kern/kernel/cpu.h>
+#include <psp2kern/types.h>
 
-#include "../include/stai/stai.h"
-#include "cpu.h"
-#include "sorted_vec.h"
-#include "types.h"
+#include "runtime.h"
 
 namespace stai::cow {
 
-struct PageRemap {
-    u32 target_vaddr;
-    SceUID block_uid;
-    u32 orig_pte;
+int init();
 
-    PageRemap(u32 target_vaddr, SceUID block_uid)
-        : target_vaddr(target_vaddr), block_uid(block_uid), orig_pte(0) {}
+SceUID write(SceUID pid, u32 addr, const u8* data, u32 len);
 
-    PageRemap(const PageRemap&) = delete;
-    PageRemap& operator=(const PageRemap&) = delete;
-    PageRemap(PageRemap&&) = default;
-    PageRemap& operator=(PageRemap&&) = default;
-};
+int release(SceUID uid);
 
-using PageRemapVec = SortedVec<PageRemap, u32, &PageRemap::target_vaddr>;
+int release_range(SceUID pid, u32 start, u32 end, bool write_back);
 
-int write_user_text(SceUID pid, PageRemapVec& remaps, u32 dst, const u8* data, u32 len);
+void cleanup(SceUID pid);
 
-void restore_pages(SceUID pid, PageRemapVec::Slice& slice);
+void dump_state(SceUID pid);
 
 } // namespace stai::cow

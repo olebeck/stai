@@ -218,7 +218,7 @@ public:
             end = size_;
         }
         size_t count = end - start;
-        for (size_t i = start; i < end; i++) {
+        for(size_t i = start; i < end; i++) {
             data_[i].~T();
         }
         shift_left(end, count);
@@ -251,7 +251,7 @@ public:
 
 private:
     void destroy_all() {
-        for (size_t i = 0; i < size_; i++) {
+        for(size_t i = 0; i < size_; i++) {
             data_[i].~T();
         }
     }
@@ -265,7 +265,7 @@ private:
         if(ptr == nullptr) {
             return false;
         }
-        for (size_t i = 0; i < size_; i++) {
+        for(size_t i = 0; i < size_; i++) {
             new (ptr + i) T(std::move(data_[i]));
             // data_[i] is intentionally left undestroyed after being moved from.
         }
@@ -276,7 +276,7 @@ private:
     }
 
     void shift_right(size_t offset, size_t count) {
-        for (size_t i = size_; i > offset; --i) {
+        for(size_t i = size_; i > offset; --i) {
             size_t src = i - 1;
             size_t dst = src + count;
             new (data_ + dst) T(std::move(data_[src]));
@@ -285,7 +285,7 @@ private:
     }
 
     void shift_left(size_t offset, size_t count) {
-        for (size_t i = offset; i < size_; i++) {
+        for(size_t i = offset; i < size_; i++) {
             new (data_ + i - count) T(std::move(data_[i]));
             // data_[i] is intentionally left undestroyed after being moved from.
         }

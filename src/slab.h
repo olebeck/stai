@@ -101,10 +101,10 @@ public:
         struct slab_header* pages_head = nullptr;
         struct slab_header* pages_tail = nullptr;
 
-        for (size_t i = 0; i < 3; ++i) {
+        for(size_t i = 0; i < 3; ++i) {
             struct slab_header* slab = heads[i];
 
-            while (slab != nullptr) {
+            while(slab != nullptr) {
                 if(slab->refcount != 0) {
                     struct slab_header* const page = slab;
                     slab = slab->next;
@@ -130,7 +130,7 @@ public:
                 struct slab_header* target = page;
                 page = page->next;
                 sce_exe_free(target->write_uid, target->exe_uid);
-            } while (page != nullptr);
+            } while(page != nullptr);
         }
     }
 
@@ -222,7 +222,7 @@ public:
                 curr.s->slots = empty_slotmask;
                 empty_ = prev = curr.s;
 
-                while (STAI_LIKELY((curr.c += slab_size) != page_end)) {
+                while(STAI_LIKELY((curr.c += slab_size) != page_end)) {
                     prev->next = curr.s;
                     curr.s->prev = prev;
                     curr.s->refcount = 0;
@@ -292,7 +292,7 @@ public:
                     const struct slab_header* const s;
                 } s{0};
 
-                for (s.c = reinterpret_cast<const char*>(page); s.c != page_end; s.c += slab_size) {
+                for(s.c = reinterpret_cast<const char*>(page); s.c != page_end; s.c += slab_size) {
                     if(STAI_UNLIKELY(s.s == empty_)) {
                         found_head = 1;
                     } else if(STAI_UNLIKELY(s.s == slab)) {

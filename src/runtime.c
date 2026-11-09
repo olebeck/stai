@@ -57,7 +57,7 @@ void abort() {
     asm volatile ("mov %0, lr" : "=r"(lr));
     ksceKernelPrintf("abort lr=%p\n", lr);
     asm ("bkpt #0");
-    while (1) {}
+    while(1) {}
 }
 
 void __aeabi_atexit(void* obj, void (*dtor)(void*), void* dso_handle) {
@@ -70,7 +70,7 @@ void* __dso_handle = NULL;
 
 void hex_dump(const void* data, size_t size) {
     const uint8_t* bytes = (const uint8_t*)data;
-    for (size_t i = 0; i < size; i++) {
+    for(size_t i = 0; i < size; i++) {
         if(i % 16 == 0) {
             ksceKernelPrintf("%08x: ", (uint32_t)(bytes + i));
         }

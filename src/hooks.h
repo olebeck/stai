@@ -45,6 +45,4 @@ int install_module_start(SceUID pid, u32 library_nid, u32 dest_func, cpu::User<H
 
 int uninstall(SceUID pid, cpu::User<HookRef> hook_ref);
 
-int write_process_text(SceUID pid, u32 dst, const u8* data, u32 len);
-
 } // namespace stai::hooks

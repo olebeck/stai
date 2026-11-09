@@ -208,10 +208,10 @@ struct ProcessObject {
 template<typename T>
 class [[nodiscard]] SceObject {
 public:
-    static SceObject refer(SceUID uid) {
+    static SceObject refer(SceUID uid, SceClass* sce_class) {
         SceObject object;
         SceObjectBase* base = nullptr;
-        if(ksceGUIDReferObject(uid, &base) >= 0) {
+        if(ksceGUIDReferObjectWithClass(uid, sce_class, &base) >= 0) {
             object.uid_ = uid;
             object.ptr_ = reinterpret_cast<T*>(base);
         }

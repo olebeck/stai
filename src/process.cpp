@@ -3,6 +3,8 @@
 #include <psp2kern/kernel/threadmgr.h>
 #include <string.h>
 
+#include "../include/stai/stai.h"
+#include "cow.h"
 #include "log.h"
 #include "runtime.h"
 
@@ -15,7 +17,7 @@ namespace stai::hooks {
 
 Process::~Process() {
     pid = 0;
-    for (auto& patch : patches) {
+    for(auto& patch : patches) {
         if(patch.record) {
             free(patch.record);
             patch.record = nullptr;
@@ -78,24 +80,29 @@ int install_function_patch(Process& process, Patch& patch, u32 dest_func) {
     }
 
     if(ctx.pending_write.pending()) {
-        int ret = ctx.pending_write.commit(process.pid, process.remaps);
+        SceUID cow_uid = -1;
+        int ret = ctx.pending_write.commit(process.pid, cow_uid);
         if(ret < 0) {
+            free(patch.record);
+            patch.record = nullptr;
             return ret;
         }
+        patch.cow_uid = cow_uid;
     }
     return 0;
 }
 
 int unpatch_function(Process& process, Patch& patch) {
+    (void)process;
     log::func(__FUNCTION__);
     if(patch.record == nullptr) {
         return STAI_ERROR_UNEXPECTED;
     }
-    int ret = cow::write_user_text(
-        process.pid, process.remaps,
-        reinterpret_cast<u32>(patch.record->function),
-        reinterpret_cast<u8*>(patch.record->saved_buffer),
-        patch.record->buffer_size);
+    int ret = 0;
+    if(patch.cow_uid >= 0) {
+        ret = cow::release(patch.cow_uid);
+        patch.cow_uid = -1;
+    }
     free(patch.record);
     patch.record = nullptr;
     return ret;
@@ -119,8 +126,9 @@ int repatch_function(Process& process, Patch& patch, u32 new_dest, cpu::User<Hoo
 
 } // namespace
 
-int PendingWrite::commit(SceUID pid, cow::PageRemapVec& remaps) {
-    return cow::write_user_text(pid, remaps, dst, data, len);
+int PendingWrite::commit(SceUID pid, SceUID& out_uid) {
+    out_uid = cow::write(pid, dst, data, len);
+    return out_uid < 0 ? out_uid : 0;
 }
 
 int patch_function(Process& process, Patch& patch, u32 dest_func, cpu::User<HookRef> hook_ref) {
@@ -142,46 +150,60 @@ int patch_function(Process& process, Patch& patch, u32 dest_func, cpu::User<Hook
     return 0;
 }
 
+void release_module_cow(const ModuleCB& module, bool destructing) {
+    const u32 text_start = reinterpret_cast<u32>(module.segments.segments[0].base_addr);
+    const u32 text_end = text_start + module.segments.segments[0].memsz;
+
+    SceKernelProcessContext* context = cpu::get_process_context(module.pid);
+    if(!destructing && context != nullptr) {
+        cpu::SwitchCtx switch_ctx(context);
+        int ret = cow::release_range(module.pid, text_start, text_end, true);
+        log::debug("cow::release_range: %08x", ret);
+    } else {
+        int ret = cow::release_range(module.pid, text_start, text_end, false);
+        log::debug("cow::release_range: %08x", ret);
+    }
+}
+
 void Process::cleanup_module(const ModuleCB& module, bool destructing) {
     const u32 text_start = reinterpret_cast<u32>(module.segments.segments[0].base_addr);
     const u32 text_end = text_start + module.segments.segments[0].memsz;
 
-    // Free patch records; don't rewrite when the module is being deleted.
-    auto patch_slice = patches.slice(text_start, text_end);
-    if(patch_slice.len) {
-        log::debug("module %s text range: %08x-%08x patches=%d", module.module_name, text_start, text_end, patch_slice.len);
+    SceKernelProcessContext* context = cpu::get_process_context(module.pid);
+    bool can_write = !destructing && context != nullptr;
+    if(can_write) {
+        cpu::SwitchCtx switch_ctx(context);
 
-        SceKernelProcessContext* context = cpu::get_process_context(module.pid);
-        if(destructing || !context) {
-            for (Patch& patch : patch_slice) {
-                if(patch.record) {
-                    free(patch.record);
-                    patch.record = nullptr;
-                }
-            }
-        } else {
-            cpu::SwitchCtx switch_ctx(context);
-            for (Patch& patch : patch_slice) {
+        auto patch_slice = patches.slice(text_start, text_end);
+        if(patch_slice.len) {
+            log::debug("module %s text range: %08x-%08x patches=%d", module.module_name, text_start, text_end, patch_slice.len);
+            for(Patch& patch : patch_slice) {
                 if(patch.record) {
                     int ret = unpatch_function(*this, patch);
                     log::debug("unpatch_function: %08x", ret);
                 }
             }
+            patches.erase_slice(patch_slice);
         }
-        patches.erase_slice(patch_slice);
+    } else {
+        auto patch_slice = patches.slice(text_start, text_end);
+        if(patch_slice.len) {
+            log::debug("module %s text range: %08x-%08x patches=%d", module.module_name, text_start, text_end, patch_slice.len);
+            for(Patch& patch : patch_slice) {
+                if(patch.record) {
+                    free(patch.record);
+                    patch.record = nullptr;
+                }
+            }
+            patches.erase_slice(patch_slice);
+        }
     }
-
-    // Clean page remaps and restore original page entries.
-    auto remap_slice = remaps.slice(text_start, text_end);
-    if(remap_slice.len) {
-        cow::restore_pages(module.pid, remap_slice);
-        remaps.erase_slice(remap_slice);
-    }
+    release_module_cow(module, destructing);
 }
 
 int Patch::add_hook(u32 dest_func, cpu::User<HookRef> hook_ref) {
     log::func(__FUNCTION__);
-    for (auto& existing_ref : chain) {
+    for(auto& existing_ref : chain) {
         if(existing_ref == hook_ref) {
             return STAI_ERROR_INVALID_ARGS;
         }
@@ -207,7 +229,7 @@ int Patch::add_hook(u32 dest_func, cpu::User<HookRef> hook_ref) {
 
 int Patch::find_ref(cpu::User<HookRef> target) const {
     size_t chain_len = chain.size();
-    for (size_t i = 0; i < chain_len; i++) {
+    for(size_t i = 0; i < chain_len; i++) {
         cpu::User<HookRef> existing_ref = chain[i];
         if(existing_ref == target) {
             return static_cast<int>(i);
@@ -306,6 +328,7 @@ void cleanup(SceUID pid) {
     if(process && process->pid != 0) {
         process->~Process();
     }
+    cow::cleanup(pid);
 }
 
 } // namespace process_registry

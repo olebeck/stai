@@ -20,6 +20,7 @@ extern "C" {
 #define STAI_ERROR_OOM            (STAI_ERROR_BASE + 0x15)
 #define STAI_ERROR_INVALID_ARGS   (STAI_ERROR_BASE + 0x16)
 #define STAI_ERROR_STUB_NOT_RESOLVED (STAI_ERROR_BASE + 0x17)
+#define STAI_ERROR_OVERLAP        (STAI_ERROR_BASE + 0x18)
 #define STAI_SUCCESS              (0)
 
 #define STAI_MAIN_MODULE (0)

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "cow.h"
 #include "cpu.h"
 #include "hooks.h"
 #include "slab.h"
@@ -20,10 +19,11 @@ struct Patch {
     u32 target_addr;
     substitute_function_hook_record* record;
     u32 old_func;
+    SceUID cow_uid;
     Vec<cpu::User<HookRef>> chain;
 
     explicit Patch(u32 target_addr)
-        : target_addr(target_addr), record(nullptr), old_func(0) {};
+        : target_addr(target_addr), record(nullptr), old_func(0), cow_uid(-1) {};
 
     Patch(const Patch&) = delete;
     Patch& operator=(const Patch&) = delete;
@@ -50,7 +50,7 @@ struct PendingWrite {
     PendingWrite() = default;
 
     bool pending() const { return dst != 0; }
-    int commit(SceUID pid, cow::PageRemapVec& remaps);
+    int commit(SceUID pid, SceUID& out_uid);
 };
 
 struct ModuleStartReg {
@@ -75,7 +75,6 @@ public:
     SceUID pid;
     ProcessSlabChain slab_chain;
     PatchVec patches;
-    cow::PageRemapVec remaps;
     ModuleStartRegVec module_start_regs;
 
     explicit Process(SceUID pid)
@@ -101,5 +100,7 @@ void cleanup(SceUID pid);
 } // namespace process_registry
 
 int patch_function(Process& process, Patch& patch, u32 dest_func, cpu::User<HookRef> hook_ref);
+
+void release_module_cow(const ModuleCB& module, bool destructing);
 
 } // namespace stai::hooks

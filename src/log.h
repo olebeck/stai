@@ -48,11 +48,11 @@ inline void func(const char*) {}
         if(!(condition)) {                                                       \
             ::stai::log::error("assertion failed: %s (%s:%d)", #condition,        \
                                __FILE__, __LINE__);                               \
-            for (;;) {                                                            \
+            for(;;) {                                                            \
                 __asm__ volatile("" ::: "memory");                                \
             }                                                                     \
         }                                                                         \
-    } while (0)
+    } while(0)
 
 #define STAI_DEBUG_ASSERT(condition) STAI_ASSERT(condition)
 #define STAI_UNUSED(value) ((void)(value))

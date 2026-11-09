@@ -4,10 +4,8 @@ on:
   push:
     branches:
       - master
-  workflow_dispatch:
-    inputs:
-      tag_name:
-        required: true
+    tags:
+      v*
 
 permissions:
   contents: write
@@ -37,22 +35,22 @@ jobs:
           echo "PATH=${PATH}:/usr/local/vitasdk/bin" >> $GITHUB_ENV
           vdpm pacman -S taihen --noconfirm
 
-      - name: Build
-        run: |
-          cmake -Bbuild -S . -DCMAKE_BUILD_TYPE=Release -DSTAI_VERSION=${{ github.event.inputs.tag_name }}
-          cmake --build build --config Release --target all
-
       - name: Determine release tag
         id: set_tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "release_tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
-            echo "manual_release=true" >> $GITHUB_OUTPUT
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "release_tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
           else
-            short_sha=$(echo "${GITHUB_SHA}" | cut -c1-7)
+            short_sha=$(echo "${{ github.sha }}" | cut -c1-7)
             echo "release_tag=prerelease-${short_sha}" >> $GITHUB_OUTPUT
-            echo "manual_release=false" >> $GITHUB_OUTPUT
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
           fi
+
+      - name: Build
+        run: |
+          cmake -Bbuild -S . -DCMAKE_BUILD_TYPE=Release -DSTAI_VERSION=${{ steps.set_tag.outputs.release_tag }}
+          cmake --build build --config Release --target all
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
@@ -62,7 +60,7 @@ jobs:
           body: |
             Build from ${{ github.sha }}
           draft: false
-          prerelease: ${{ steps.set_tag.outputs.manual_release == 'false' }}
+          prerelease: ${{ steps.set_tag.outputs.is_prerelease }}
           files: |
             build/stai-*.pkg.tar.xz
             build/stai.skprx
